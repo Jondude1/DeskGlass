@@ -200,8 +200,25 @@ class CivSim(
     private var lastNarrateAt = 0L
     private var lastErrorLog = 0L
 
+    // kingdoms, world ages and god powers (declared before init so loading can use them)
+    val kingdoms = ArrayList<Kingdom>()
+    val rels = HashMap<String, Rel>()
+    val biome = IntArray(GW * GH)
+    val owner = IntArray(GW * GH) { -1 }
+    val fx = ArrayList<Fx>()
+    var worldAge = 0
+        private set
+    private var worldAgeStart = 0.0
+    private var pendingKings: JSONArray? = null
+    private var pendingRels: JSONArray? = null
+    private var worldClock = 0f
+    private var ownerClock = 0f
+    private var nextWorldEventAt = 0.0
+    private var shakeUntil = 0.0
+
     init {
         if (!load()) generate()
+        setupWorld()
     }
 
     // ---- world ----
@@ -254,6 +271,11 @@ class CivSim(
         chronicle.clear()
         time = DAY_LEN * 0.08
         lastBirth = time
+        worldAge = 0
+        worldAgeStart = time
+        pendingKings = null
+        pendingRels = null
+        fx.clear()
         val e = noise(rnd, 4)
         val f = noise(rnd, 3)
         val g = noise(rnd, 3)
@@ -336,6 +358,7 @@ class CivSim(
         seed = System.currentTimeMillis()
         nextId = 1
         generate()
+        setupWorld()
         save()
     }
 
@@ -357,7 +380,9 @@ class CivSim(
     }
 
     /** 0 = bright day, up to 0.55 = deep night. */
-    fun darkness(): Float {
+    fun darkness(): Float = max(baseDarkness(), ageInfo().darkFloor)
+
+    private fun baseDarkness(): Float {
         val f = frac()
         return when {
             f < 0.04 -> 0.55f
@@ -971,7 +996,7 @@ class CivSim(
     // ---- brains ----
 
     private fun alert() = time < alertUntil
-    fun raining() = time < rainUntil || outsideRain
+    fun raining() = time < rainUntil || outsideRain || worldAge == 5
     private fun festival() = time < festivalUntil
 
     fun mood(v: Villager): String = when {
@@ -1124,6 +1149,7 @@ class CivSim(
         sb.append("\n")
         sb.append("You are ${v.name}, the village ${v.job}, ${ageYears(v)} years old. ${JOB_BLURB[v.job] ?: ""}\n")
         sb.append(techNote() + "\n")
+        sb.append(worldNote())
         sb.append("Personality: ${v.trait}. You ${v.persona.voice}. Your dream: ${v.persona.dream}.\n")
         sb.append("Mood: ${mood(v)}. Hunger ${v.hunger.toInt()}/100 (eat above 60). Energy ${v.energy.toInt()}/100 (sleep when low or at night).\n")
         sb.append("Village stock: wood $wood, stone $stone, food $food")
@@ -1251,6 +1277,422 @@ class CivSim(
         }
     }
 
+    // ---- kingdoms, world ages and god powers ----
+
+    fun ageInfo(): WorldAgeInfo = WORLD_AGES[worldAge.coerceIn(0, WORLD_AGES.size - 1)]
+
+    fun shake(): Float = if (time < shakeUntil) ((shakeUntil - time) / 1.5).toFloat().coerceIn(0f, 1f) else 0f
+
+    private fun relKey(a: Int, b: Int) = "${min(a, b)}-${max(a, b)}"
+
+    fun relOf(a: Int, b: Int): String = rels[relKey(a, b)]?.kind ?: "peace"
+
+    fun wars(): List<Pair<Kingdom, Kingdom>> {
+        val out = ArrayList<Pair<Kingdom, Kingdom>>()
+        for (r in rels.values) {
+            if (r.kind != "war") continue
+            val a = kingdoms.firstOrNull { it.id == r.a } ?: continue
+            val b = kingdoms.firstOrNull { it.id == r.b } ?: continue
+            out.add(Pair(a, b))
+        }
+        return out
+    }
+
+    fun kx(k: Kingdom): Float =
+        (if (k.id == 0) (buildings.firstOrNull { it.type == "campfire" }?.x ?: k.cx) else k.cx) + 0.5f
+
+    fun ky(k: Kingdom): Float =
+        (if (k.id == 0) (buildings.firstOrNull { it.type == "campfire" }?.y ?: k.cy) else k.cy) + 0.5f
+
+    fun homeCount(k: Kingdom): Int = (2 + k.pop / 4).coerceIn(2, max(2, k.homes.size))
+
+    private fun strength(k: Kingdom): Float =
+        if (k.id == 0) adults() * 1.5f + count("hut") + age * 3f + toolBonus() * 2f + 4f
+        else k.pop * 1.5f + k.might
+
+    private fun setupWorld() {
+        val nb = noise(Random(seed * 17 + 3), 4)
+        for (i in 0 until GW * GH) {
+            val x = i % GW
+            val y = i / GW
+            val d = hypot((x - GW / 2).toFloat(), (y - GH / 2).toFloat())
+            biome[i] = when {
+                d < 9f -> 0
+                nb[i] > 0.80f -> 1
+                nb[i] < 0.13f -> 2
+                else -> 0
+            }
+        }
+        val r = Random(seed * 31 + 17)
+        kingdoms.clear()
+        rels.clear()
+        kingdoms.add(Kingdom(0, "Hearthvale", "Human", 0xFF4F9BFF, GW / 2, GH / 2))
+        val spots = listOf(
+            intArrayOf(6 + r.nextInt(4), 5 + r.nextInt(3)),
+            intArrayOf(GW - 8 - r.nextInt(3), GH - 6 - r.nextInt(3)),
+            intArrayOf(GW - 8 - r.nextInt(3), 5 + r.nextInt(3)),
+        )
+        val races = listOf("Elf", "Orc", "Dwarf")
+        val colors = listOf(0xFFC77DFF, 0xFFE8503A, 0xFFF0B13C)
+        val offs = listOf(
+            intArrayOf(-2, -1), intArrayOf(2, -1), intArrayOf(-2, 2), intArrayOf(2, 2),
+            intArrayOf(0, -3), intArrayOf(0, 3), intArrayOf(-4, 1), intArrayOf(4, 1),
+        )
+        for (k in 0 until 3) {
+            val names = RACE_NAMES[races[k]] ?: listOf("Rivals")
+            val kg = Kingdom(k + 1, names[r.nextInt(names.size)], races[k], colors[k], spots[k][0], spots[k][1])
+            kg.pop = 5 + r.nextInt(4)
+            kg.might = 8f + r.nextInt(8)
+            kingdoms.add(kg)
+            for (dy in -3..3) for (dx in -3..3) {
+                val x = kg.cx + dx
+                val y = kg.cy + dy
+                if (x !in 1 until GW - 1 || y !in 1 until GH - 1) continue
+                val i = y * GW + x
+                if (occupied[i] || hypot(dx.toFloat(), dy.toFloat()) > 3.4f) continue
+                if (tiles[i] != T.GRASS) {
+                    tiles[i] = T.GRASS
+                    amt[i] = 0
+                }
+            }
+            occupied[kg.cy * GW + kg.cx] = true
+            for (o in offs) {
+                val x = kg.cx + o[0]
+                val y = kg.cy + o[1]
+                if (x !in 1 until GW - 1 || y !in 1 until GH - 1) continue
+                val i = y * GW + x
+                if (occupied[i]) continue
+                tiles[i] = T.GRASS
+                amt[i] = 0
+                occupied[i] = true
+                kg.homes.add(intArrayOf(x, y))
+            }
+        }
+        val pk = pendingKings
+        if (pk != null) {
+            for (i in 0 until pk.length()) {
+                val j = pk.getJSONObject(i)
+                val kg = kingdoms.firstOrNull { it.id == j.optInt("id", -1) } ?: continue
+                if (kg.id == 0) continue
+                kg.pop = j.optInt("pop", kg.pop)
+                kg.might = j.optDouble("might", kg.might.toDouble()).toFloat()
+                kg.fallen = j.optBoolean("fallen", false)
+                kg.fallenAt = j.optDouble("fallenAt", 0.0)
+                val nm = j.optString("name", "")
+                if (nm.isNotBlank()) kg.name = nm
+            }
+        }
+        pendingKings = null
+        val pr = pendingRels
+        if (pr != null) {
+            for (i in 0 until pr.length()) {
+                val j = pr.getJSONObject(i)
+                val a = j.optInt("a", -1)
+                val b = j.optInt("b", -1)
+                if (a < 0 || b < 0 || a == b) continue
+                rels[relKey(a, b)] = Rel(a, b, j.optString("kind", "trade"), j.optDouble("until", time + 100.0))
+            }
+        }
+        pendingRels = null
+        nextWorldEventAt = time + 60.0
+        refreshBorders()
+    }
+
+    private fun refreshBorders() {
+        val me = kingdoms.firstOrNull() ?: return
+        me.pop = villagers.size
+        me.radius = min(10f, 3.5f + kotlin.math.sqrt(villagers.size.toFloat()) * 1.2f + buildings.size * 0.12f)
+        for (k in kingdoms) {
+            if (k.id != 0) k.radius = if (k.fallen) 0f else min(8.5f, 3.2f + kotlin.math.sqrt(k.pop.toFloat()) * 0.9f)
+        }
+        for (i in 0 until GW * GH) {
+            if (tiles[i] == T.WATER) {
+                owner[i] = -1
+                continue
+            }
+            val x = i % GW + 0.5f
+            val y = i / GW + 0.5f
+            var best = -1
+            var bestV = 1f
+            for (k in kingdoms) {
+                if (k.fallen || k.radius <= 0f) continue
+                val v = hypot(x - kx(k), y - ky(k)) / k.radius
+                if (v < bestV) {
+                    bestV = v
+                    best = k.id
+                }
+            }
+            owner[i] = best
+        }
+    }
+
+    private fun worldNote(): String {
+        val inf = ageInfo()
+        val sb = StringBuilder("World age: ${inf.name} (${inf.blurb}) ")
+        val others = kingdoms.filter { it.id != 0 && !it.fallen }
+        if (others.isNotEmpty()) {
+            sb.append("Neighbouring kingdoms: " + others.joinToString(", ") { "${it.name} (${it.race}s, ${relOf(0, it.id)} with you)" } + ". ")
+        }
+        val w = wars().firstOrNull()
+        if (w != null) sb.append("${w.first.name} is at war with ${w.second.name}. ")
+        return sb.toString() + "\n"
+    }
+
+    private fun nextWorldAge() {
+        val n = WORLD_AGES.size
+        var pick = if (worldAge != 0 && rnd.nextInt(5) < 2) 0 else rnd.nextInt(n)
+        if (pick == worldAge) pick = (pick + 1) % n
+        worldAge = pick
+        worldAgeStart = time
+        val inf = ageInfo()
+        event("${inf.name} begins. ${inf.blurb}")
+        mark("${inf.name} begins.")
+    }
+
+    private fun worldTick(dt: Float) {
+        ownerClock += dt
+        if (ownerClock > 1.5f) {
+            ownerClock = 0f
+            refreshBorders()
+        }
+        fx.removeAll { time - it.born > it.life }
+        if (time - worldAgeStart > DAY_LEN * 2.5) nextWorldAge()
+        worldClock += dt
+        if (worldClock < 12f) return
+        worldClock = 0f
+        val info = ageInfo()
+        for (v in villagers) v.happiness = (v.happiness + info.mood).coerceIn(0f, 100f)
+        if (worldAge == 3 && rnd.nextInt(8) == 0) {
+            food += 2
+            wood += 2
+            event("A shimmering gift from the sky lands in the village (+2 food, +2 wood).")
+        }
+        for (k in kingdoms) {
+            if (k.id == 0) continue
+            if (k.fallen) {
+                if (time - k.fallenAt > 260.0) reborn(k)
+                continue
+            }
+            if (k.pop < 30 && rnd.nextFloat() < (if (info.farm >= 1f) 0.4f else 0.2f)) k.pop++
+            k.might = min(40f, k.might + 0.15f)
+        }
+        for (r in rels.values.toList()) {
+            when (r.kind) {
+                "war" -> warRound(r)
+                else -> if (time > r.until) rels.remove(relKey(r.a, r.b))
+            }
+        }
+        if (time >= nextWorldEventAt) {
+            nextWorldEventAt = time + 70.0 + rnd.nextInt(90)
+            diplomacy()
+        }
+    }
+
+    private fun reborn(k: Kingdom) {
+        val names = RACE_NAMES[k.race] ?: return
+        k.fallen = false
+        k.pop = 4
+        k.might = 6f
+        k.name = "Free " + names[rnd.nextInt(names.size)]
+        event("Rebels rise from the ruins: the ${k.race.lowercase()}s raise a new banner as the ${k.name}.")
+        mark("${k.name} is founded by rebels.")
+    }
+
+    private fun warRound(r: Rel) {
+        val a = kingdoms.firstOrNull { it.id == r.a } ?: return
+        val b = kingdoms.firstOrNull { it.id == r.b } ?: return
+        if (a.fallen || b.fallen) {
+            rels.remove(relKey(r.a, r.b))
+            return
+        }
+        val pa = strength(a)
+        val pb = strength(b)
+        val aWins = rnd.nextFloat() * (pa + pb) < pa
+        val win = if (aWins) a else b
+        val lose = if (aWins) b else a
+        fx.add(Fx("clash", (kx(a) + kx(b)) / 2f, (ky(a) + ky(b)) / 2f, time, 13f))
+        if (lose.id == 0) {
+            food -= min(food, 1 + rnd.nextInt(2))
+            wood -= min(wood, rnd.nextInt(3))
+            for (v in villagers) v.happiness = max(0f, v.happiness - 3f)
+            if (rnd.nextInt(3) == 0) addLog("Raiders from ${win.name} plunder the village stores.")
+        } else {
+            lose.pop = max(0, lose.pop - 1)
+            if (win.id == 0) {
+                wood += 1 + rnd.nextInt(2)
+                stone += 1
+                for (v in villagers) v.happiness = min(100f, v.happiness + 2f)
+                if (rnd.nextInt(3) == 0) addLog("Hearthvale's defenders drive back ${lose.name}.")
+            } else {
+                win.might = min(40f, win.might + 0.6f)
+            }
+        }
+        if (lose.id != 0 && lose.pop <= 2) {
+            lose.fallen = true
+            lose.fallenAt = time
+            lose.pop = 0
+            rels.remove(relKey(r.a, r.b))
+            if (win.id != 0) win.pop += 2
+            event("${lose.name} has fallen to ${win.name}! Its banners come down.")
+            mark("${lose.name} fell to ${win.name}.")
+            return
+        }
+        if (time > r.until) {
+            rels.remove(relKey(r.a, r.b))
+            event("${a.name} and ${b.name} sign a truce. The war is over.")
+            mark("${a.name} and ${b.name} made peace.")
+        }
+    }
+
+    private fun diplomacy() {
+        val alive = kingdoms.filter { !it.fallen }
+        if (alive.size < 2) return
+        val a = alive[rnd.nextInt(alive.size)]
+        val rest = alive.filter { it !== a }
+        val b = rest[rnd.nextInt(rest.size)]
+        if (rels.containsKey(relKey(a.id, b.id))) return
+        val warFactor = ageInfo().war
+        val warsNow = rels.values.count { it.kind == "war" }
+        val roll = rnd.nextFloat()
+        val key = relKey(a.id, b.id)
+        val me = a.id == 0 || b.id == 0
+        when {
+            roll < 0.28f * warFactor && warsNow < 1 -> {
+                rels[key] = Rel(a.id, b.id, "war", time + 120.0 + rnd.nextInt(120))
+                if (me) {
+                    alertUntil = time + 60.0
+                    for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
+                    event("${a.name} declares war on ${b.name}! Warriors march on the border.")
+                } else {
+                    event("${a.name} declares war on ${b.name}!")
+                }
+                mark("${a.name} went to war with ${b.name}.")
+            }
+            roll < 0.28f * warFactor + 0.30f -> {
+                rels[key] = Rel(a.id, b.id, "alliance", time + 500.0)
+                if (me) for (v in villagers) v.happiness = min(100f, v.happiness + 8f)
+                event("${a.name} and ${b.name} swear an alliance.")
+                mark("${a.name} and ${b.name} allied.")
+            }
+            else -> {
+                rels[key] = Rel(a.id, b.id, "trade", time + 160.0)
+                if (me) {
+                    food += 3
+                    wood += 3
+                }
+                if (a.id != 0) a.pop++
+                if (b.id != 0) b.pop++
+                event("Trade caravans roll between ${a.name} and ${b.name}.")
+            }
+        }
+    }
+
+    private fun godAct(text: String) {
+        addLog(text)
+        lastNarrateAt = 0L
+        narrate(text)
+        for (v in villagers) v.remember(text.take(70))
+    }
+
+    private fun hitKingdom(ci: Int, loss: Int, text: String) {
+        val k = kingdoms.firstOrNull { it.id == owner[ci] } ?: return
+        if (k.id == 0 || k.fallen) return
+        k.pop = max(2, k.pop - loss)
+        event("$text ${k.name} suffers.")
+    }
+
+    /** The player's god powers. Called when a power is chosen and the map is tapped. */
+    fun usePower(name: String, x: Float, y: Float) {
+        val tx = x.coerceIn(0f, GW - 0.01f)
+        val ty = y.coerceIn(0f, GH - 0.01f)
+        val ix = tx.toInt()
+        val iy = ty.toInt()
+        val ci = iy * GW + ix
+        fun near(r: Float) = villagers.filter { hypot(it.x - tx, it.y - ty) <= r }
+        when (name) {
+            "Bless" -> {
+                for (v in near(4.5f)) {
+                    v.happiness = min(100f, v.happiness + 30f)
+                    v.hp = min(100f, v.hp + 40f)
+                    v.hunger = max(0f, v.hunger - 25f)
+                }
+                for (b in buildings) {
+                    if (b.type == "farm" && hypot(b.x + 0.5f - tx, b.y + 0.5f - ty) <= 5f) b.boostUntil = time + 60.0
+                }
+                fx.add(Fx("bless", tx, ty, time, 2.6f))
+                godAct("A golden light blesses the land.")
+            }
+            "Rain" -> {
+                rainUntil = max(rainUntil, time + 70.0)
+                for (i in tiles.indices) if (tiles[i] == T.BUSH && amt[i] < 3) amt[i]++
+                godAct("The sky opens and rain falls.")
+            }
+            "Spawn" -> {
+                if (tiles[ci] == T.WATER) return
+                if (villagers.size >= popCap() + 4) {
+                    addLog("The village is too crowded to welcome anyone else.")
+                    return
+                }
+                val n = spawnVillager()
+                n.x = tx
+                n.y = ty
+                fx.add(Fx("spawn", tx, ty, time, 1.8f))
+                godAct("A stranger named ${n.name} appears in a flash of light.")
+            }
+            "Lightning" -> {
+                fx.add(Fx("bolt", tx, ty, time, 0.9f))
+                if (tiles[ci] == T.FOREST) {
+                    amt[ci] = 2
+                    fx.add(Fx("fire", tx, ty, time, 7f))
+                }
+                for (v in near(1.8f)) {
+                    v.hp = max(5f, v.hp - 45f)
+                    v.happiness = max(0f, v.happiness - 10f)
+                }
+                godAct("Lightning strikes!")
+            }
+            "Quake" -> {
+                shakeUntil = time + 1.5
+                fx.add(Fx("quake", tx, ty, time, 1.8f))
+                repeat(8) {
+                    val ex = ix + rnd.nextInt(7) - 3
+                    val ey = iy + rnd.nextInt(7) - 3
+                    if (ex in 1 until GW - 1 && ey in 1 until GH - 1) {
+                        val i = ey * GW + ex
+                        if (tiles[i] == T.GRASS && !occupied[i]) {
+                            tiles[i] = T.ROCK
+                            amt[i] = 4
+                        }
+                    }
+                }
+                for (v in near(7f)) v.happiness = max(0f, v.happiness - 6f)
+                godAct("The ground shakes and splits.")
+                hitKingdom(ci, 2, "An earthquake rattles the land.")
+            }
+            "Meteor" -> {
+                shakeUntil = time + 1.8
+                fx.add(Fx("meteor", tx, ty, time, 2.4f))
+                for (v in near(2.5f)) v.hp = max(1f, v.hp - 60f)
+                if (!occupied[ci] && tiles[ci] != T.WATER) {
+                    tiles[ci] = if (age >= 2) T.ORE else T.ROCK
+                    amt[ci] = 5
+                }
+                godAct("A meteor crashes down!")
+                mark("A meteor fell from the sky.")
+                hitKingdom(ci, 3, "A meteor strikes.")
+            }
+            "Plague" -> {
+                fx.add(Fx("plague", tx, ty, time, 5f))
+                for (v in near(5.5f)) {
+                    v.hp = max(5f, v.hp - 30f)
+                    v.happiness = max(0f, v.happiness - 12f)
+                }
+                godAct("A sickly green cloud drifts over the land.")
+                hitKingdom(ci, 3, "A plague spreads.")
+            }
+        }
+    }
+
     // ---- tick ----
 
     private var nextEventAt = DAY_LEN * 0.3
@@ -1267,7 +1709,7 @@ class CivSim(
 
     private fun eventTick() {
         if (time < nextEventAt || villagers.size < 2) return
-        nextEventAt = time + 150.0 + rnd.nextInt(150)
+        nextEventAt = time + 150.0 + rnd.nextInt(150) - (if (worldAge == 6) 75.0 else 0.0)
         when (rnd.nextInt(6)) {
             0 -> {
                 for (i in tiles.indices) if (tiles[i] == T.BUSH) amt[i] = 3
@@ -1345,7 +1787,7 @@ class CivSim(
 
         for (b in buildings) {
             if (b.type != "farm") continue
-            var interval = if (time < b.boostUntil) 12f else 40f
+            var interval = (if (time < b.boostUntil) 12f else 40f) / ageInfo().farm
             if (toolBonus() > 0) interval *= 0.8f
             if (raining()) interval *= 0.7f
             b.timer += dt
@@ -1378,6 +1820,7 @@ class CivSim(
 
         ageTick(dt)
         eventTick()
+        worldTick(dt)
         schedule()
     }
 
@@ -1472,6 +1915,18 @@ class CivSim(
             o.put("chron", JSONArray(chronicle.takeLast(40)))
             o.put("ore", ore).put("metal", metal).put("smelted", totalSmelted).put("explored", explored).put("age", age)
             o.put("nextId", nextId)
+            o.put("wage", worldAge).put("wstart", worldAgeStart)
+            val ks = JSONArray()
+            kingdoms.forEach {
+                ks.put(
+                    JSONObject().put("id", it.id).put("pop", it.pop).put("might", it.might.toDouble())
+                        .put("fallen", it.fallen).put("fallenAt", it.fallenAt).put("name", it.name)
+                )
+            }
+            o.put("kings", ks)
+            val rs = JSONArray()
+            rels.values.forEach { rs.put(JSONObject().put("a", it.a).put("b", it.b).put("kind", it.kind).put("until", it.until)) }
+            o.put("rels", rs)
             o.put("tiles", String(CharArray(tiles.size) { i -> '0' + tiles[i] }))
             o.put("amt", String(CharArray(amt.size) { i -> '0' + min(9, amt[i]) }))
             val bs = JSONArray()
@@ -1549,6 +2004,10 @@ class CivSim(
             }
             val lg = o.optJSONArray("log")
             if (lg != null) for (i in 0 until lg.length()) log.add(lg.getString(i))
+            worldAge = o.optInt("wage", 0).coerceIn(0, WORLD_AGES.size - 1)
+            worldAgeStart = o.optDouble("wstart", time)
+            pendingKings = o.optJSONArray("kings")
+            pendingRels = o.optJSONArray("rels")
             rnd = Random(seed xor time.toLong())
             villagers.isNotEmpty()
         } catch (e: Exception) {

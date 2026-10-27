@@ -114,6 +114,62 @@ class CivArt {
     private val firePal = mapOf('y' to 0xFFFFE070.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt(), 's' to 0xFF8E8E96.toInt())
     val fire = listOf(sprite(FIRE1, firePal), sprite(FIRE2, firePal))
 
+    val desert = List(2) { speckled(70 + it, 0xFFDDB46C.toInt(), 0xFFC79C54.toInt(), 0xFFEBCB8C.toInt()) }
+    val snowTile = List(2) { speckled(80 + it, 0xFFE8EFF6.toInt(), 0xFFCBD9E8.toInt(), 0xFFFFFFFF.toInt()) }
+    val cactus = sprite(CACTUS, mapOf('g' to 0xFF4E9E4A.toInt(), 'G' to 0xFF3A7A38.toInt()))
+    val elfHouse = sprite(ELF_HOUSE, mapOf(
+        'g' to 0xFF4FAE5C.toInt(), 'G' to 0xFF2F7A3E.toInt(), 'h' to 0xFF8ADB7A.toInt(),
+        'w' to 0xFFE9DDB8.toInt(), 'k' to 0xFFBFE9FF.toInt(), 'd' to 0xFF5A3A22.toInt(), 'b' to 0xFF8A6A3E.toInt(),
+    ))
+    val orcHut = sprite(ORC_HUT, mapOf(
+        'k' to 0xFFE8E0C8.toInt(), 's' to 0xFF7A6A55.toInt(), 'h' to 0xFF7A5A3A.toInt(),
+        'R' to 0xFFC0392B.toInt(), 'd' to 0xFF2A1A10.toInt(), 'b' to 0xFF4A3220.toInt(),
+    ))
+    val dwarfHall = sprite(DWARF_HALL, mapOf(
+        'r' to 0xFF8A4B2B.toInt(), 'R' to 0xFF6B3A20.toInt(), 'c' to 0xFF55555E.toInt(),
+        's' to 0xFFA6A6B0.toInt(), 'S' to 0xFF7E7E88.toInt(), 'd' to 0xFF2A1A10.toInt(),
+        'O' to 0xFFFFA32B.toInt(), 'b' to 0xFF5E5E68.toInt(),
+    ))
+    val keep = sprite(KEEP, mapOf(
+        's' to 0xFFB9BCC6.toInt(), 'S' to 0xFF8D909C.toInt(), 'k' to 0xFF2A2A34.toInt(),
+        'd' to 0xFF4A2E1B.toInt(), 'm' to 0xFF9C9FAB.toInt(),
+    ))
+    val ship = sprite(SHIP, mapOf(
+        'm' to 0xFF5A3A22.toInt(), 'w' to 0xFFF4F0E6.toInt(), 'b' to 0xFF8A5A2B.toInt(), 'B' to 0xFF6B4220.toInt(),
+    ))
+
+    fun homeFor(race: String): ImageBitmap = when (race) {
+        "Elf" -> elfHouse
+        "Orc" -> orcHut
+        else -> dwarfHall
+    }
+
+    private fun folkSprites(skin: Int, skinShade: Int, hair: Int, shirt: Int, shade: Int, top: List<String>?, beard: Boolean, tusks: Boolean): List<ImageBitmap> {
+        val pal = mapOf(
+            'r' to hair, 'h' to skin, 'H' to skinShade, 'd' to 0xFF222222.toInt(),
+            's' to shirt, 'S' to shade, 'p' to 0xFF3A3F5C.toInt(), 'b' to 0xFF3B2A1A.toInt(), 'w' to 0xFFF4F0E6.toInt(),
+        )
+        fun tweak(g: List<String>): List<String> {
+            val rows = g.toMutableList()
+            if (top != null) rows[0] = top[0]
+            if (beard) {
+                rows[4] = ".rrrrrr."
+                rows[5] = ".srrrrs."
+            }
+            if (tusks) rows[4] = ".whHHhw."
+            return rows
+        }
+        return listOf(sprite(tweak(PERSON1), pal), sprite(tweak(PERSON2), pal))
+    }
+
+    private val folkMap = mapOf(
+        "Elf" to folkSprites(0xFFF0D8B0.toInt(), 0xFFD9BC90.toInt(), 0xFFE8E0A0.toInt(), 0xFFC77DFF.toInt(), 0xFF9A55D1.toInt(), listOf("h.rrrr.h"), false, false),
+        "Orc" to folkSprites(0xFF7DB84A.toInt(), 0xFF5E9234.toInt(), 0xFF222222.toInt(), 0xFFE8503A.toInt(), 0xFFB03A28.toInt(), null, false, true),
+        "Dwarf" to folkSprites(0xFFF2C7A0.toInt(), 0xFFD9A982.toInt(), 0xFFB5651D.toInt(), 0xFFF0B13C.toInt(), 0xFFB98A27.toInt(), null, true, false),
+    )
+
+    fun folk(race: String, frame: Int): ImageBitmap = (folkMap[race] ?: folkMap.getValue("Elf"))[frame and 1]
+
     private val shirts = intArrayOf(0xFFD94F4F.toInt(), 0xFF4F7FD9.toInt(), 0xFFE0B040.toInt(), 0xFF8E4FD9.toInt(), 0xFF4FB58E.toInt(), 0xFFE07A3A.toInt(), 0xFFD94F9B.toInt(), 0xFFEFEFEF.toInt(), 0xFF8B5A2B.toInt(), 0xFFCD7F32.toInt(), 0xFF4A4F5A.toInt())
     private val shirtShade = intArrayOf(0xFFA83A3A.toInt(), 0xFF3A62A8.toInt(), 0xFFB48C2E.toInt(), 0xFF6D3AA8.toInt(), 0xFF3A8D6E.toInt(), 0xFFB05E2A.toInt(), 0xFFA83A78.toInt(), 0xFFC0C0C0.toInt(), 0xFF6B4220.toInt(), 0xFF9A5F22.toInt(), 0xFF2F333B.toInt())
     private val hairs = intArrayOf(0xFF3B2A1A.toInt(), 0xFF8A5A2B.toInt(), 0xFF222222.toInt(), 0xFFD9B04A.toInt(), 0xFF7A2E1E.toInt(), 0xFFB0B0B0.toInt(), 0xFF5A3A6A.toInt(), 0xFF2E4A3A.toInt(), 0xFF3B2A1A.toInt(), 0xFF7A2E1E.toInt(), 0xFF222222.toInt())
@@ -187,6 +243,76 @@ class CivArt {
             "ggggGgrggg",
             ".gggggggGg",
             "..GGGGGG..",
+        )
+        val CACTUS = listOf(
+            "...gg...",
+            ".g.gg...",
+            ".g.gg.g.",
+            ".gggg.g.",
+            "...ggggg",
+            "...gG...",
+            "...gG...",
+            "...gG...",
+        )
+        val ELF_HOUSE = listOf(
+            "....gggg....",
+            "..ggghhggg..",
+            ".gghgggggGg.",
+            "gggggggggGGg",
+            ".ggggggggGG.",
+            "..wwwwwwww..",
+            "..wkwddwkw..",
+            "..wwwddwww..",
+            "..wwwddwww..",
+            "..bbbbbbbb..",
+        )
+        val ORC_HUT = listOf(
+            "....k..k....",
+            "....s..s....",
+            ".....ss.....",
+            "....hhhh....",
+            "...hhhRhh...",
+            "..hhhhRhhh..",
+            ".hhhhhddhhh.",
+            "hhhhhhddhhhh",
+            "bbbbbbddbbbb",
+        )
+        val DWARF_HALL = listOf(
+            "......cc....",
+            "......cc....",
+            "...rrrrrrr..",
+            "..rrrrrrrrr.",
+            ".rrrrrrrrrrR",
+            ".ssssssssss.",
+            ".sSssddddsS.",
+            ".ssssdOOdss.",
+            ".sSsssddssS.",
+            "bbbbbbbbbbbb",
+        )
+        val KEEP = listOf(
+            "..m.m.mm.m.m..",
+            "..mssssssssm..",
+            "..sSsssssssS..",
+            "..ssskssksss..",
+            "..sSsssssssS..",
+            "..ssssssssss..",
+            "..ssskssksss..",
+            "..sSsssssssS..",
+            ".ssssssssssss.",
+            ".sSssdddssSss.",
+            ".sssddddddsss.",
+            ".sSsddddddSss.",
+            "SSSSSSSSSSSSSS",
+        )
+        val SHIP = listOf(
+            "......m.......",
+            "......mww.....",
+            "......mwwww...",
+            "......mwwwww..",
+            "......m.......",
+            "bbbbbbbbbbbbb.",
+            ".bBBBBBBBBBb..",
+            "..bbbbbbbbb...",
         )
         val HUT = listOf(
             "......RR......",

@@ -4,6 +4,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,6 +41,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
@@ -48,6 +52,7 @@ import com.jondude1.deskglass.MainViewModel
 import com.jondude1.deskglass.sim.CivSim
 import com.jondude1.deskglass.sim.GH
 import com.jondude1.deskglass.sim.GW
+import com.jondude1.deskglass.sim.GOD_POWERS
 import com.jondude1.deskglass.sim.T
 import kotlin.math.max
 import kotlin.math.min
@@ -55,7 +60,14 @@ import kotlinx.coroutines.delay
 
 /** The village, drawn live. It also runs the simulation while it is on screen. */
 @Composable
-fun CivCanvas(sim: CivSim, modifier: Modifier = Modifier, cover: Boolean = true, labels: Boolean = false) {
+fun CivCanvas(
+    sim: CivSim,
+    modifier: Modifier = Modifier,
+    cover: Boolean = true,
+    labels: Boolean = false,
+    onTapTile: ((Float, Float) -> Unit)? = null,
+) {
+    val tapCb by rememberUpdatedState(onTapTile)
     val art = remember { CivArt() }
     var frame by remember { mutableLongStateOf(0L) }
     val textPaint = remember {
@@ -102,7 +114,24 @@ fun CivCanvas(sim: CivSim, modifier: Modifier = Modifier, cover: Boolean = true,
         }
     }
 
-    Canvas(modifier) {
+    val tapMod = if (onTapTile != null) {
+        Modifier.pointerInput(cover) {
+            detectTapGestures { p ->
+                val cb = tapCb
+                if (cb != null) {
+                    val w = size.width.toFloat()
+                    val h = size.height.toFloat()
+                    val ts = if (cover) max(w / GW, h / GH) else min(w / GW, h / GH)
+                    val ox = (w - GW * ts) / 2f
+                    val oy = (h - GH * ts) / 2f
+                    val tx = (p.x - ox) / ts
+                    val ty = (p.y - oy) / ts
+                    if (tx >= 0f && ty >= 0f && tx < GW && ty < GH) cb(tx, ty)
+                }
+            }
+        }
+    } else Modifier
+    Canvas(modifier.then(tapMod)) {
         @Suppress("UNUSED_VARIABLE") val f = frame
         drawWorld(sim, art, cover, labels, textPaint, bubblePaint, namePaint)
     }
@@ -189,13 +218,26 @@ private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
     drawOval(Color.Black.copy(alpha = 0.22f), topLeft = Offset(cx - w / 2f, cy - h / 2f), size = Size(w, h))
 }
 
+private fun DrawScope.banner(x: Float, baseY: Float, h: Float, c: Color, ps: Float, t: Float, seed: Float) {
+    drawRect(Color(0xFF4A3220), Offset(x, baseY - h), Size(ps * 0.9f, h))
+    val parts = 4
+    val cw = ps * 1.3f
+    for (i in 0 until parts) {
+        val off = kotlin.math.sin(t * 4f + seed + i * 0.9f) * ps * 0.5f
+        val fx0 = x + ps * 0.9f + i * cw
+        drawRect(c, Offset(fx0, baseY - h + off), Size(cw + 0.5f, ps * 3.2f))
+        drawRect(Color.Black.copy(alpha = 0.18f), Offset(fx0, baseY - h + off + ps * 2.2f), Size(cw + 0.5f, ps))
+    }
+}
+
 private fun DrawScope.drawWorld(
     sim: CivSim, art: CivArt, cover: Boolean, labels: Boolean,
     textPaint: Paint, bubblePaint: Paint, namePaint: Paint,
 ) {
     val ts = if (cover) max(size.width / GW, size.height / GH) else min(size.width / GW, size.height / GH)
-    val ox = (size.width - GW * ts) / 2f
-    val oy = (size.height - GH * ts) / 2f
+    val shk = sim.shake()
+    val ox = (size.width - GW * ts) / 2f + kotlin.math.sin(sim.time * 70.0).toFloat() * ts * 0.18f * shk
+    val oy = (size.height - GH * ts) / 2f + kotlin.math.cos(sim.time * 63.0).toFloat() * ts * 0.18f * shk
     val ps = ts / 16f
     val t = sim.time.toFloat()
     val water = ((sim.time * 1.5).toInt()) and 1
@@ -214,9 +256,22 @@ private fun DrawScope.drawWorld(
         val tile = when {
             sim.tiles[i] == T.WATER -> art.water[water]
             isWater(x + 1, y) || isWater(x - 1, y) || isWater(x, y + 1) || isWater(x, y - 1) -> art.sand[h and 1]
-            else -> art.grass[h and 3]
+            else -> when (sim.biome[i]) {
+                1 -> art.desert[h and 1]
+                2 -> art.snowTile[h and 1]
+                else -> art.grass[h and 3]
+            }
         }
         img(tile, ox + x * ts, oy + y * ts, ts + 1f, ts + 1f)
+        if (sim.tiles[i] == T.WATER) {
+            val bob = kotlin.math.sin(t * 2f + x * 0.8f + y) * ps * 0.6f
+            val fa = 0.38f + 0.2f * kotlin.math.sin(t * 2.3f + x + y * 0.6f)
+            val foam = Color.White.copy(alpha = fa)
+            if (y + 1 < GH && !isWater(x, y + 1)) drawRect(foam, Offset(ox + x * ts, oy + (y + 1) * ts - ps * 1.6f + bob), Size(ts + 1f, ps * 1.2f))
+            if (y > 0 && !isWater(x, y - 1)) drawRect(foam, Offset(ox + x * ts, oy + y * ts + ps * 0.4f - bob), Size(ts + 1f, ps * 1.2f))
+            if (x + 1 < GW && !isWater(x + 1, y)) drawRect(foam, Offset(ox + (x + 1) * ts - ps * 1.6f + bob, oy + y * ts), Size(ps * 1.2f, ts + 1f))
+            if (x > 0 && !isWater(x - 1, y)) drawRect(foam, Offset(ox + x * ts + ps * 0.4f - bob, oy + y * ts), Size(ps * 1.2f, ts + 1f))
+        }
         if (sim.tiles[i] == T.WATER && h % 5 == 0) {
             val tw = kotlin.math.sin(t * 2.4f + (h % 13)).coerceIn(0f, 1f)
             if (tw > 0.05f) {
@@ -238,6 +293,52 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // kingdom territories: tinted ground and glowing borders
+    val pulse = 0.65f + 0.2f * kotlin.math.sin(t * 2f)
+    fun other(nx: Int, ny: Int, o: Int) = nx in 0 until GW && ny in 0 until GH && sim.owner[ny * GW + nx] != o
+    for (y in 0 until GH) for (x in 0 until GW) {
+        val o = sim.owner[y * GW + x]
+        if (o < 0) continue
+        val kg = sim.kingdoms.getOrNull(o) ?: continue
+        val kc = Color(kg.color)
+        drawRect(kc.copy(alpha = 0.13f), Offset(ox + x * ts, oy + y * ts), Size(ts + 1f, ts + 1f))
+        val bw = ps * 1.4f
+        val edge = kc.copy(alpha = pulse)
+        if (other(x - 1, y, o)) drawRect(edge, Offset(ox + x * ts, oy + y * ts), Size(bw, ts))
+        if (other(x + 1, y, o)) drawRect(edge, Offset(ox + (x + 1) * ts - bw, oy + y * ts), Size(bw, ts))
+        if (other(x, y - 1, o)) drawRect(edge, Offset(ox + x * ts, oy + y * ts), Size(ts, bw))
+        if (other(x, y + 1, o)) drawRect(edge, Offset(ox + x * ts, oy + (y + 1) * ts - bw), Size(ts, bw))
+    }
+
+    // ships sail along open water
+    var shipN = 0
+    for (y in 1 until GH - 1) {
+        var x = 0
+        while (x < GW) {
+            if (isWater(x, y)) {
+                var e = x
+                while (e < GW && isWater(e, y)) e++
+                if (e - x >= 5 && shipN < 3) {
+                    val lo = x + 1.5f
+                    val hi = e - 1.5f
+                    val pos = lo + (hi - lo) * (0.5f + 0.5f * kotlin.math.sin(t * 0.12f + y))
+                    val sp = art.ship
+                    val sw = sp.width * ps
+                    val sh = sp.height * ps
+                    val bob = kotlin.math.sin(t * 2f + y) * ps * 0.7f
+                    val cx = ox + pos * ts
+                    val cy = oy + (y + 0.7f) * ts + bob
+                    drawOval(Color.Black.copy(alpha = 0.18f), Offset(cx - sw * 0.45f, cy - ps), Size(sw * 0.9f, ps * 2.4f))
+                    img(sp, cx - sw / 2f, cy - sh, sw, sh)
+                    shipN++
+                }
+                x = e
+            } else {
+                x++
+            }
+        }
+    }
+
     val wellHut = sim.buildings.firstOrNull { it.type == "hut" && it.era >= 1 }
     // things standing on the ground, row by row so lower ones overlap higher ones
     for (y in 0 until GH) {
@@ -252,7 +353,7 @@ private fun DrawScope.drawWorld(
                     if (sim.amt[i] <= 2) {
                         sp = art.stump
                     } else {
-                        sp = if (h % 3 == 0) art.pine else art.oak
+                        sp = if (h % 3 == 0 || sim.biome[i] == 2) art.pine else art.oak
                         shadowW = 10f
                         swaying = true
                     }
@@ -260,6 +361,7 @@ private fun DrawScope.drawWorld(
                 T.ROCK -> { sp = art.rock; shadowW = 11f }
                 T.ORE -> { sp = art.oreRock; shadowW = 11f }
                 T.BUSH -> { sp = if (sim.amt[i] > 0) art.bush else art.bushEmpty; shadowW = 9f }
+                T.GRASS -> if (sim.biome[i] == 1 && h % 11 == 0 && sim.owner[i] < 0) { sp = art.cactus; shadowW = 6f }
             }
             if (sp != null) {
                 val w = sp.width * ps
@@ -279,6 +381,48 @@ private fun DrawScope.drawWorld(
             val wby = oy + (wellHut.y + 0.97f) * ts
             shadow(wcx, wby, ww * 0.9f, 3.5f * ps)
             img(wsp, wcx - ww / 2f, wby - wh, ww, wh)
+        }
+        for (k in sim.kingdoms) {
+            if (k.id == 0) continue
+            val kc = Color(k.color)
+            if (k.fallen) {
+                if (k.cy == y) {
+                    val rs = art.rock
+                    img(rs, ox + (k.cx + 0.5f) * ts - rs.width * ps / 2f, oy + (k.cy + 0.95f) * ts - rs.height * ps, rs.width * ps, rs.height * ps)
+                }
+                continue
+            }
+            val home = art.homeFor(k.race)
+            val n = sim.homeCount(k)
+            for ((hi, hm) in k.homes.withIndex()) {
+                if (hi >= n || hm[1] != y) continue
+                val w = home.width * ps
+                val hh = home.height * ps
+                val cx = ox + (hm[0] + 0.5f) * ts
+                val baseY = oy + (hm[1] + 0.97f) * ts
+                shadow(cx, baseY, w * 0.9f, 3.5f * ps)
+                img(home, cx - w / 2f, baseY - hh, w, hh)
+                banner(cx + w * 0.28f, baseY - hh + ps * 1.5f, ps * 5f, kc, ps * 0.8f, t, hi.toFloat())
+            }
+            if (k.cy == y) {
+                val kp = art.keep
+                val w = kp.width * ps
+                val hh = kp.height * ps
+                val cx = ox + (k.cx + 0.5f) * ts
+                val baseY = oy + (k.cy + 0.97f) * ts
+                shadow(cx, baseY, w * 0.95f, 4f * ps)
+                img(kp, cx - w / 2f, baseY - hh, w, hh)
+                banner(cx - ps * 0.4f, baseY - hh + ps * 0.5f, ps * 9f, kc, ps, t, k.id.toFloat())
+                if (dark > 0.1f) {
+                    val glow = Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f))
+                    drawRect(glow, Offset(cx - w * 0.31f, baseY - hh * 0.72f), Size(ps * 1.4f, ps * 2.2f))
+                    drawRect(glow, Offset(cx + w * 0.15f, baseY - hh * 0.72f), Size(ps * 1.4f, ps * 2.2f))
+                }
+            }
+        }
+        val myFire = sim.buildings.firstOrNull { it.type == "campfire" }
+        if (myFire != null && myFire.y == y) {
+            banner(ox + (myFire.x + 1.15f) * ts, oy + (myFire.y + 0.9f) * ts, ps * 11f, Color(sim.kingdoms[0].color), ps, t, 0f)
         }
         for (b in sim.buildings) {
             if (b.y != y || b.type != "farm") continue
@@ -375,6 +519,176 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // rival kingdoms' folk go about their day
+    for (k in sim.kingdoms) {
+        if (k.id == 0 || k.fallen) continue
+        val crowd = min(6, k.pop / 2 + 1)
+        for (m in 0 until crowd) {
+            val wx = k.cx + 0.5f + kotlin.math.sin(t * 0.35f + m * 2.1f + k.id) * (1.6f + (m % 3) * 0.5f)
+            val wy = k.cy + 1.4f + kotlin.math.cos(t * 0.28f + m * 1.7f) * (1.2f + (m % 2) * 0.6f)
+            val spr = art.folk(k.race, ((t * 3f + m).toInt()) and 1)
+            val sc = if (k.race == "Dwarf") 0.85f else 1f
+            val w = spr.width * ps * sc
+            val h = spr.height * ps * sc
+            shadow(ox + wx * ts, oy + wy * ts, w * 0.9f, 2.4f * ps)
+            img(spr, ox + wx * ts - w / 2f, oy + wy * ts - h, w, h)
+        }
+    }
+
+    // armies march and clash while kingdoms are at war
+    for ((a, b) in sim.wars()) {
+        val ax = sim.kx(a)
+        val ay = sim.ky(a)
+        val bx = sim.kx(b)
+        val byy = sim.ky(b)
+        for (m in 0 until 4) {
+            val p = 0.12f + ((t * 0.05f + m * 0.07f) % 1f) * 0.38f
+            val mx = ax + (bx - ax) * p
+            val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
+            val soldier = art.folk(if (a.race == "Human") "Elf" else a.race, ((t * 4f + m).toInt()) and 1)
+            val w = soldier.width * ps
+            val h = soldier.height * ps
+            shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
+            img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
+        }
+        for (m in 0 until 4) {
+            val p = 0.62f + ((t * 0.05f + m * 0.07f) % 1f) * 0.26f
+            val mx = ax + (bx - ax) * p
+            val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
+            val soldier = art.folk(if (b.race == "Human") "Elf" else b.race, ((t * 4f + m).toInt()) and 1)
+            val w = soldier.width * ps
+            val h = soldier.height * ps
+            shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
+            img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
+        }
+        val cx = ox + (ax + (bx - ax) * 0.5f) * ts
+        val cy = oy + (ay + (byy - ay) * 0.5f) * ts
+        for (sp in 0 until 7) {
+            val ang = t * 5f + sp * 0.9f
+            val r = ts * (0.25f + 0.35f * ((t * 3f + sp * 0.37f) % 1f))
+            val flick = (0.5f + 0.5f * kotlin.math.sin(t * 17f + sp * 2.1f)).coerceIn(0f, 1f)
+            drawRect(
+                (if (sp % 2 == 0) Color(0xFFFFC94A) else Color(0xFFFF6A2B)).copy(alpha = 0.4f + 0.6f * flick),
+                Offset(cx + kotlin.math.cos(ang) * r, cy - ts * 0.3f + kotlin.math.sin(ang) * r * 0.7f),
+                Size(ps * 1.6f, ps * 1.6f),
+            )
+        }
+        val sw = Color(0xFFE6E9F0)
+        drawLine(sw, Offset(cx - ts * 0.35f, cy - ts * 0.7f), Offset(cx + ts * 0.35f, cy - ts * 0.1f), strokeWidth = ps * 1.3f)
+        drawLine(sw, Offset(cx + ts * 0.35f, cy - ts * 0.7f), Offset(cx - ts * 0.35f, cy - ts * 0.1f), strokeWidth = ps * 1.3f)
+    }
+
+    // god power effects
+    for (f in sim.fx.toList()) {
+        val age = (sim.time - f.born).toFloat()
+        val p = (age / f.life).coerceIn(0f, 1f)
+        val cx = ox + f.x * ts
+        val cy = oy + f.y * ts
+        when (f.type) {
+            "bolt" -> if (age < 0.5f) {
+                val a = 1f - age / 0.5f
+                var px0 = cx + ts * 0.6f
+                var py0 = oy - ts
+                val steps = 7
+                for (sg in 1..steps) {
+                    val last = sg == steps
+                    val nx = if (last) cx else cx + (((cellHash(sg, (f.born * 10).toInt()) % 100) / 100f) - 0.5f) * ts * 1.4f
+                    val ny = py0 + (cy - (oy - ts)) / steps
+                    drawLine(Color.White.copy(alpha = a), Offset(px0, py0), Offset(nx, ny), strokeWidth = ps * 2.4f)
+                    drawLine(Color(0xFFFFE066).copy(alpha = a), Offset(px0, py0), Offset(nx, ny), strokeWidth = ps * 1f)
+                    px0 = nx
+                    py0 = ny
+                }
+                drawRect(Color.White.copy(alpha = 0.35f * a))
+                drawCircle(Color(0xFFFFF3B0).copy(alpha = a), radius = ts * (0.4f + age), center = Offset(cx, cy))
+            }
+            "fire" -> {
+                val fade = if (p > 0.7f) (1f - p) / 0.3f else 1f
+                for (k in 0 until 5) {
+                    val ph = ((t * 2.2f + k * 0.21f) % 1f)
+                    val fxp = cx + (k - 2) * ps * 2.2f
+                    val col = if (k % 2 == 0) Color(0xFFFF8A2B) else Color(0xFFFFD84A)
+                    drawRect(col.copy(alpha = fade * (1f - ph)), Offset(fxp, cy - ph * ts * 0.9f), Size(ps * 2.4f, ps * (3.2f - ph * 2f)))
+                }
+            }
+            "bless" -> {
+                drawCircle(Color(0xFFFFE9A0).copy(alpha = 0.55f * (1f - p)), radius = ts * (0.5f + p * 4.5f), center = Offset(cx, cy))
+                for (k in 0 until 14) {
+                    val ang = k * 0.45f + p * 2f
+                    val rr = ts * (0.4f + p * 3.6f) * (0.5f + (k % 3) * 0.25f)
+                    drawRect(
+                        Color(0xFFFFF6B0).copy(alpha = 1f - p),
+                        Offset(cx + kotlin.math.cos(ang) * rr, cy + kotlin.math.sin(ang) * rr * 0.7f - p * ts * 1.4f),
+                        Size(ps * 1.8f, ps * 1.8f),
+                    )
+                }
+            }
+            "spawn" -> {
+                drawCircle(Color.White.copy(alpha = 0.7f * (1f - p)), radius = ts * (0.3f + p * 1.8f), center = Offset(cx, cy))
+                drawRect(
+                    Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.8f * (1f - p)), Color.Transparent), startY = cy - ts * 3f, endY = cy),
+                    Offset(cx - ts * 0.3f, cy - ts * 3f),
+                    Size(ts * 0.6f, ts * 3f),
+                )
+            }
+            "quake" -> {
+                for (k in 0 until 7) {
+                    val ang = k * 0.9f
+                    val len = ts * (1f + 2.2f * minOf(1f, p * 2f))
+                    drawLine(
+                        Color(0xFF2A1A10).copy(alpha = 1f - p * 0.6f),
+                        Offset(cx, cy),
+                        Offset(cx + kotlin.math.cos(ang) * len, cy + kotlin.math.sin(ang) * len * 0.7f),
+                        strokeWidth = ps * 1.3f,
+                    )
+                }
+                for (k in 0 until 6) {
+                    val ang = k * 1.05f
+                    drawCircle(
+                        Color(0xFFB09870).copy(alpha = 0.35f * (1f - p)),
+                        radius = ts * (0.25f + p * 0.6f),
+                        center = Offset(cx + kotlin.math.cos(ang) * ts * 1.4f * p, cy + kotlin.math.sin(ang) * ts * p - p * ts * 0.6f),
+                    )
+                }
+            }
+            "meteor" -> {
+                if (p < 0.45f) {
+                    val q = p / 0.45f
+                    val sx = cx + ts * 9f * (1f - q)
+                    val sy = cy - ts * 12f * (1f - q)
+                    drawLine(Color(0xFFFF8A2B).copy(alpha = 0.6f), Offset(sx + ts * 2f, sy - ts * 2.6f), Offset(sx, sy), strokeWidth = ps * 4f)
+                    drawCircle(Color(0xFFFFE066), radius = ts * 0.55f, center = Offset(sx, sy))
+                    drawCircle(Color(0xFFFF6A2B), radius = ts * 0.4f, center = Offset(sx, sy))
+                } else {
+                    val q = (p - 0.45f) / 0.55f
+                    drawRect(Color.White.copy(alpha = 0.4f * (1f - q) * (1f - q)))
+                    drawCircle(Color(0xFFFF8A2B).copy(alpha = 0.7f * (1f - q)), radius = ts * (0.5f + q * 3.2f), center = Offset(cx, cy))
+                    drawCircle(Color(0xFFFFE066).copy(alpha = 0.8f * (1f - q)), radius = ts * (0.3f + q * 1.6f), center = Offset(cx, cy))
+                    for (k in 0 until 8) {
+                        val ang = k * 0.8f
+                        drawRect(
+                            Color(0xFFFFC94A).copy(alpha = 1f - q),
+                            Offset(cx + kotlin.math.cos(ang) * ts * 3.6f * q, cy + kotlin.math.sin(ang) * ts * 3f * q - ts * q),
+                            Size(ps * 2f, ps * 2f),
+                        )
+                    }
+                }
+            }
+            "plague" -> {
+                val fade = if (p > 0.6f) (1f - p) / 0.4f else minOf(1f, p * 4f)
+                for (k in 0 until 9) {
+                    val ang = k * 0.7f + t * 0.4f
+                    val rr = ts * (1.2f + (k % 3) * 1.1f)
+                    drawCircle(
+                        Color(0xFF8EDB4A).copy(alpha = 0.22f * fade),
+                        radius = ts * (0.9f + (k % 2) * 0.5f),
+                        center = Offset(cx + kotlin.math.cos(ang) * rr, cy + kotlin.math.sin(ang) * rr * 0.7f - ts * 0.4f),
+                    )
+                }
+            }
+        }
+    }
+
     // butterflies by day, small birds crossing over the village
     if (dark < 0.25f) {
         for (k in 0 until 5) {
@@ -441,7 +755,7 @@ private fun DrawScope.drawWorld(
 
     // seasons follow the real calendar: blossoms, warm light, falling leaves, snow
     val season = when (java.time.LocalDate.now().monthValue) { 12, 1, 2 -> 3; 3, 4, 5 -> 0; 6, 7, 8 -> 1; else -> 2 }
-    val snowing = sim.outsideSnow || season == 3
+    val snowing = sim.outsideSnow || season == 3 || sim.worldAge == 7
     drawRect(
         when (season) {
             0 -> Color(0xFFFFB6D5)
@@ -467,6 +781,56 @@ private fun DrawScope.drawWorld(
             else -> Color(0xFFFFB6D5)
         }
         drawRect(c.copy(alpha = 0.85f), Offset(px * size.width, py * size.height), Size(ps * 1.6f, ps * 1.6f))
+    }
+
+    // world ages tint the whole land and fill the air
+    val ai = sim.ageInfo()
+    if (ai.tintA > 0f) drawRect(Color(ai.tint).copy(alpha = ai.tintA))
+    fun motes(n: Int, c: Color, dir: Float, sz: Float, spd: Float) {
+        for (i in 0 until n) {
+            val h1 = (cellHash(i, 71) % 1000) / 1000f
+            val h2 = (cellHash(i, 53) % 1000) / 1000f
+            val py = (((h1 + t * spd * (0.4f + h2) * dir) % 1f) + 1f) % 1f
+            val px = (h2 + kotlin.math.sin(t * 0.7f + i) * 0.02f + 1f) % 1f
+            val tw = 0.5f + 0.5f * kotlin.math.sin(t * 3f + i)
+            drawRect(c.copy(alpha = 0.85f * tw), Offset(px * size.width, py * size.height), Size(ps * sz, ps * sz))
+        }
+    }
+    when (ai.particle) {
+        "motes" -> motes(26, Color(0xFFFFF3B0), -1f, 1.4f, 0.03f)
+        "silver" -> motes(34, Color(0xFFDDE6FF), -1f, 1.6f, 0.025f)
+        "sparkle" -> {
+            motes(18, Color(0xFFFF9AF0), -1f, 1.8f, 0.04f)
+            motes(18, Color(0xFF9AF0FF), -1f, 1.8f, 0.03f)
+            motes(12, Color(0xFFFFF59A), -1f, 1.8f, 0.05f)
+        }
+        "embers" -> {
+            motes(34, Color(0xFFFF7A2B), -1f, 1.6f, 0.06f)
+            if (kotlin.math.sin(t * 7f) * kotlin.math.sin(t * 3.1f) > 0.93f) drawRect(Color(0xFFFF3A2A).copy(alpha = 0.12f))
+        }
+        "ash" -> {
+            motes(60, Color(0xFFB8B8C0), 1f, 1.7f, 0.045f)
+            motes(14, Color(0xFFFF7A2B), 1f, 1.3f, 0.04f)
+        }
+        "wisps" -> motes(24, Color(0xFF7A5AB8), -1f, 2.4f, 0.02f)
+        "rays" -> {
+            for (k in 0 until 4) {
+                val sx = size.width * (0.1f + 0.25f * k) + kotlin.math.sin(t * 0.2f + k) * ts
+                drawLine(
+                    Color(0xFFFFF0A0).copy(alpha = 0.07f + 0.03f * kotlin.math.sin(t * 0.8f + k)),
+                    Offset(sx, 0f), Offset(sx - size.width * 0.18f, size.height), strokeWidth = ts * 1.6f,
+                )
+            }
+        }
+        "fog" -> {
+            for (k in 0 until 5) {
+                val fxp = ((t * 0.01f + k * 0.23f) % 1.3f - 0.15f) * size.width
+                drawOval(
+                    Color(0xFFB0B0BC).copy(alpha = 0.11f),
+                    Offset(fxp - ts * 6f, size.height * (0.15f + 0.18f * k) - ts), Size(ts * 12f, ts * 3.4f),
+                )
+            }
+        }
     }
 
     // rain
@@ -496,6 +860,18 @@ private fun DrawScope.drawWorld(
     // speech bubbles and names
     drawIntoCanvas { c ->
         val nc = c.nativeCanvas
+        if (labels) {
+            for (k in sim.kingdoms) {
+                if (k.fallen) continue
+                val lx = ox + sim.kx(k) * ts
+                val ly = oy + (sim.ky(k) - (if (k.id == 0) 1.25f else 1.35f)) * ts
+                namePaint.textSize = ts * 0.36f
+                namePaint.textAlign = Paint.Align.CENTER
+                namePaint.color = k.color.toInt()
+                nc.drawText(k.name + " · " + k.pop, lx, ly, namePaint)
+            }
+            namePaint.color = android.graphics.Color.argb(230, 255, 255, 255)
+        }
         for (v in sorted) {
             val cx = ox + v.x * ts
             val top = oy + (v.y + 0.45f) * ts - 12f * ps
@@ -524,6 +900,26 @@ private fun DrawScope.drawWorld(
     }
 }
 
+/** The god powers: pick one, then tap the map. */
+@Composable
+fun PowerBar(selected: String?, onSelect: (String?) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (name in GOD_POWERS) {
+                GlassButton(name, { onSelect(if (selected == name) null else name) }, filled = selected == name)
+            }
+        }
+        Text(
+            if (selected == null) "Pick a god power, then tap the world." else "$selected: tap anywhere on the map. Tap the button again to put it away.",
+            color = Glass.InkFaint,
+            fontSize = 12.sp,
+        )
+    }
+}
+
 /** The full-screen village: watch, read what everyone is thinking, and speak to the village. */
 @Composable
 fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean) -> Unit, onBack: () -> Unit) {
@@ -531,6 +927,8 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
     var tick by remember { mutableLongStateOf(0L) }
     var whisper by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
+    var power by remember { mutableStateOf<String?>(null) }
+    val usePower: (Float, Float) -> Unit = { x, y -> power?.let { sim.usePower(it, x, y) } }
     LaunchedEffect(Unit) {
         while (true) {
             delay(500L)
@@ -542,10 +940,11 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
 
     if (fullscreen) {
         Box(Modifier.fillMaxSize()) {
-            CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
+            CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true, onTapTile = usePower)
+            PowerBar(power, { power = it }, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
             GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
             Text(
-                "${sim.ageName()} · day ${sim.day()}",
+                "${sim.ageInfo().name} · ${sim.ageName()} · day ${sim.day()}",
                 color = Glass.InkDim,
                 fontSize = 15.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
@@ -555,7 +954,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     narration!!,
                     color = Glass.InkDim,
                     fontSize = 17.sp,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
                 )
             }
         }
@@ -577,11 +976,17 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
             }
         })
         Row(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            GlassCard(Modifier.weight(0.68f).fillMaxHeight(), corner = 24.dp) {
-                CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
+            Column(Modifier.weight(0.68f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PowerBar(power, { power = it }, Modifier.fillMaxWidth())
+                GlassCard(Modifier.weight(1f).fillMaxWidth(), corner = 24.dp) {
+                    CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true, onTapTile = usePower)
+                }
             }
             Column(Modifier.weight(0.32f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(sim.ageName(), color = Glass.Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                val wa = sim.ageInfo()
+                Text(wa.name, color = Color(wa.tint), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(wa.blurb, color = Glass.InkFaint, fontSize = 12.sp)
                 Text(
                     "Day ${sim.day()} · ${sim.partOfDay()} · ${sim.villagers.size}/${sim.popCap()} villagers",
                     color = Glass.Ink, fontSize = 16.sp,
@@ -618,6 +1023,23 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                                 color = Glass.InkFaint, fontSize = 12.sp,
                             )
                         }
+                    }
+                    Text("KINGDOMS", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 4.dp))
+                    for (k in sim.kingdoms) {
+                        val rel = if (k.id == 0) "your village" else sim.relOf(0, k.id)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("●", color = Color(k.color), fontSize = 14.sp)
+                            Text(
+                                if (k.fallen) "${k.name} (fallen)" else "${k.name} · ${k.race}s · ${k.pop} · $rel",
+                                color = Glass.InkDim, fontSize = 13.sp,
+                            )
+                        }
+                    }
+                    for (r in sim.rels.values) {
+                        if (r.a == 0 || r.b == 0) continue
+                        val an = sim.kingdoms.getOrNull(r.a)?.name ?: continue
+                        val bn = sim.kingdoms.getOrNull(r.b)?.name ?: continue
+                        Text("$an and $bn: ${r.kind}", color = Glass.InkFaint, fontSize = 12.sp)
                     }
                     if (sim.chronicle.isNotEmpty()) {
                         Text("CHRONICLE", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))
