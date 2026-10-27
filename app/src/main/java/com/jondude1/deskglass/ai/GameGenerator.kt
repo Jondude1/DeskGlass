@@ -20,7 +20,6 @@ class GameGenerator(private val prefs: Prefs) {
         val body = JSONObject()
             .put("model", prefs.chatModel.trim())
             .put("max_tokens", 24000)
-            .put("thinking", JSONObject().put("type", "disabled"))
             .put("system", SYSTEM)
             .put(
                 "messages",
