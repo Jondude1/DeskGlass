@@ -180,6 +180,7 @@ private fun DrawScope.drawWorld(
                     }
                 }
                 T.ROCK -> { sp = art.rock; shadowW = 11f }
+                T.ORE -> { sp = art.oreRock; shadowW = 11f }
                 T.BUSH -> { sp = if (sim.amt[i] > 0) art.bush else art.bushEmpty; shadowW = 9f }
             }
             if (sp != null) {
@@ -195,8 +196,9 @@ private fun DrawScope.drawWorld(
         for (b in sim.buildings) {
             if (b.y != y) continue
             val sp = when (b.type) {
-                "hut" -> art.hut
+                "hut" -> if (b.era <= 0) art.tent else if (b.era == 1) art.hut else art.hutStone
                 "farm" -> art.farm
+                "smelter" -> art.forge
                 else -> art.fire[fireFrame]
             }
             val w = sp.width * ps
@@ -206,7 +208,7 @@ private fun DrawScope.drawWorld(
             if (b.type != "farm") shadow(cx, baseY, w * 0.9f, 3.5f * ps)
             img(sp, cx - w / 2f, baseY - hh, w, hh)
             // lit windows at night
-            if (b.type == "hut" && dark > 0.1f) {
+            if (b.type == "hut" && b.era >= 1 && dark > 0.1f) {
                 val glow = Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f))
                 drawRect(glow, Offset(cx - w * 0.36f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
                 drawRect(glow, Offset(cx + w * 0.18f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
@@ -214,9 +216,9 @@ private fun DrawScope.drawWorld(
         }
     }
 
-    // smoke from campfires
+    // smoke from campfires and forges
     for (b in sim.buildings) {
-        if (b.type != "campfire") continue
+        if (b.type != "campfire" && b.type != "smelter") continue
         val fx = ox + (b.x + 0.5f) * ts
         val fy = oy + (b.y + 0.4f) * ts
         for (k in 0 until 4) {
@@ -234,8 +236,9 @@ private fun DrawScope.drawWorld(
     for (v in sorted) {
         val walking = v.phase == "walking"
         val sp = art.person(v.colorIdx, if (walking) (((v.x + v.y) * 3).toInt() and 1) else 0)
-        val w = sp.width * ps
-        val h = sp.height * ps
+        val kid = if (sim.isChild(v)) 0.72f else 1f
+        val w = sp.width * ps * kid
+        val h = sp.height * ps * kid
         val bob = when (v.phase) {
             "walking" -> kotlin.math.abs(kotlin.math.sin(t * 9f + v.id)) * ps * 0.8f
             "working" -> kotlin.math.abs(kotlin.math.sin(t * 6f + v.id)) * ps * 1.2f
@@ -253,10 +256,12 @@ private fun DrawScope.drawWorld(
         } else {
             img(sp, px, feetY - h - bob, w, h)
         }
-        if (v.phase == "working" && v.action.startsWith("gather_")) {
+        if (v.phase == "working" && (v.action.startsWith("gather_") || v.action == "mine_ore" || v.action == "smelt")) {
             val col = when (v.action) {
                 "gather_wood" -> Color(0xFFB07A3C)
                 "gather_stone" -> Color(0xFFB8BEC8)
+                "mine_ore" -> Color(0xFFD98A3D)
+                "smelt" -> Color(0xFFFF9A2B)
                 else -> Color(0xFFE0405A)
             }
             for (k in 0 until 3) {
@@ -289,9 +294,9 @@ private fun DrawScope.drawWorld(
     if (dark > 0f) {
         drawRect(Color(0xFF0A1030).copy(alpha = dark))
         for (b in sim.buildings) {
-            if (b.type != "campfire") continue
+            if (b.type != "campfire" && b.type != "smelter") continue
             val c = Offset(ox + (b.x + 0.5f) * ts, oy + (b.y + 0.5f) * ts)
-            val flick = 1f + 0.06f * kotlin.math.sin(t * 11f)
+            val flick = (1f + 0.06f * kotlin.math.sin(t * 11f)) * (if (b.type == "smelter") 0.45f else 1f)
             drawCircle(
                 Brush.radialGradient(
                     listOf(Color(0xFFFFB347).copy(alpha = dark * 0.95f), Color.Transparent),
@@ -386,6 +391,12 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
         Box(Modifier.fillMaxSize()) {
             CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
             GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
+            Text(
+                "${sim.ageName()} · day ${sim.day()}",
+                color = Glass.InkDim,
+                fontSize = 15.sp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+            )
             if (narration != null) {
                 Text(
                     narration!!,
@@ -417,12 +428,18 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
             }
             Column(Modifier.weight(0.32f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(sim.ageName(), color = Glass.Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Day ${sim.day()} · ${sim.partOfDay()} · ${sim.villagers.size} villagers",
-                    color = Glass.Ink, fontSize = 18.sp, fontWeight = FontWeight.Medium,
+                    "Day ${sim.day()} · ${sim.partOfDay()} · ${sim.villagers.size}/${sim.popCap()} villagers",
+                    color = Glass.Ink, fontSize = 16.sp,
                 )
+                val next = sim.nextAgeName()
+                if (next != null) {
+                    Text("Next: $next — ${sim.progress()}%", color = Glass.InkDim, fontSize = 14.sp)
+                }
                 Text(
-                    "Wood ${sim.wood}   Stone ${sim.stone}   Food ${sim.food}",
+                    "Wood ${sim.wood}   Stone ${sim.stone}   Food ${sim.food}" +
+                        (if (sim.age >= 2) "   Ore ${sim.ore}   Metal ${sim.metal}" else ""),
                     color = Glass.InkDim, fontSize = 16.sp,
                 )
                 Text("Brain: ${sim.brain}", color = Glass.InkFaint, fontSize = 14.sp)
@@ -433,9 +450,13 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     for (v in sim.villagers) {
                         Column {
                             Text(
-                                "${v.name} the ${v.job.lowercase()} · ${if (v.action.isEmpty()) "thinking" else v.action.replace('_', ' ')}",
+                                (if (sim.isChild(v)) "${v.name}, child (${sim.ageYears(v)})" else "${v.name} the ${v.job.lowercase()} (${sim.ageYears(v)})") +
+                                    " · ${if (v.action.isEmpty()) "thinking" else v.action.replace('_', ' ')}",
                                 color = Glass.Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium,
                             )
+                            if (sim.isChild(v) && v.parents.isNotBlank()) {
+                                Text("child of ${v.parents}", color = Glass.InkDim, fontSize = 13.sp)
+                            }
                             if (v.thought.isNotBlank()) {
                                 Text("“${v.thought}”", color = Glass.InkDim, fontSize = 14.sp)
                             }

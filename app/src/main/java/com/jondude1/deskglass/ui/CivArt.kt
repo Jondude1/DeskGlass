@@ -86,6 +86,22 @@ class CivArt {
         'w' to 0xFFDDBB82.toInt(), 'W' to 0xFFBF9C63.toInt(), 'd' to 0xFF4A2E1B.toInt(),
         'k' to 0xFF9FD3F0.toInt(), 'b' to 0xFF8A6A3E.toInt(), 'c' to 0xFF6E6E78.toInt(),
     ))
+    val hutStone = sprite(HUT, mapOf(
+        'r' to 0xFF6F7A8C.toInt(), 'R' to 0xFF4F5868.toInt(), 'S' to 0xFF8E99AB.toInt(),
+        'w' to 0xFFB9B9BF.toInt(), 'W' to 0xFF95959D.toInt(), 'd' to 0xFF3E2A1B.toInt(),
+        'k' to 0xFF9FD3F0.toInt(), 'b' to 0xFF6B6B74.toInt(), 'c' to 0xFF6E6E78.toInt(),
+    ))
+    val tent = sprite(TENT, mapOf(
+        'p' to 0xFF6B4A2B.toInt(), 't' to 0xFFC9A26B.toInt(), 'T' to 0xFFA67E4B.toInt(), 'd' to 0xFF3B2A1A.toInt(),
+    ))
+    val oreRock = sprite(ORE, mapOf(
+        'r' to 0xFF9AA0AA.toInt(), 'R' to 0xFFC9CED6.toInt(), 'd' to 0xFF6B707A.toInt(),
+        'o' to 0xFFD98A3D.toInt(), 'O' to 0xFFF2D06B.toInt(),
+    ))
+    val forge = sprite(FORGE, mapOf(
+        'c' to 0xFF4A4A52.toInt(), 'C' to 0xFF2E2E34.toInt(), 's' to 0xFF8A8A94.toInt(), 'S' to 0xFF62626C.toInt(),
+        'O' to 0xFFFF7A21.toInt(), 'y' to 0xFFFFD84A.toInt(),
+    ))
     val farm = sprite(FARM, mapOf(
         'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
         'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
@@ -93,10 +109,10 @@ class CivArt {
     private val firePal = mapOf('y' to 0xFFFFE070.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt(), 's' to 0xFF8E8E96.toInt())
     val fire = listOf(sprite(FIRE1, firePal), sprite(FIRE2, firePal))
 
-    private val shirts = intArrayOf(0xFFD94F4F.toInt(), 0xFF4F7FD9.toInt(), 0xFFE0B040.toInt(), 0xFF8E4FD9.toInt(), 0xFF4FB58E.toInt(), 0xFFE07A3A.toInt(), 0xFFD94F9B.toInt(), 0xFFEFEFEF.toInt())
-    private val shirtShade = intArrayOf(0xFFA83A3A.toInt(), 0xFF3A62A8.toInt(), 0xFFB48C2E.toInt(), 0xFF6D3AA8.toInt(), 0xFF3A8D6E.toInt(), 0xFFB05E2A.toInt(), 0xFFA83A78.toInt(), 0xFFC0C0C0.toInt())
-    private val hairs = intArrayOf(0xFF3B2A1A.toInt(), 0xFF8A5A2B.toInt(), 0xFF222222.toInt(), 0xFFD9B04A.toInt(), 0xFF7A2E1E.toInt(), 0xFFB0B0B0.toInt(), 0xFF5A3A6A.toInt(), 0xFF2E4A3A.toInt())
-    private val people = List(8) { i ->
+    private val shirts = intArrayOf(0xFFD94F4F.toInt(), 0xFF4F7FD9.toInt(), 0xFFE0B040.toInt(), 0xFF8E4FD9.toInt(), 0xFF4FB58E.toInt(), 0xFFE07A3A.toInt(), 0xFFD94F9B.toInt(), 0xFFEFEFEF.toInt(), 0xFF8B5A2B.toInt(), 0xFFCD7F32.toInt(), 0xFF4A4F5A.toInt())
+    private val shirtShade = intArrayOf(0xFFA83A3A.toInt(), 0xFF3A62A8.toInt(), 0xFFB48C2E.toInt(), 0xFF6D3AA8.toInt(), 0xFF3A8D6E.toInt(), 0xFFB05E2A.toInt(), 0xFFA83A78.toInt(), 0xFFC0C0C0.toInt(), 0xFF6B4220.toInt(), 0xFF9A5F22.toInt(), 0xFF2F333B.toInt())
+    private val hairs = intArrayOf(0xFF3B2A1A.toInt(), 0xFF8A5A2B.toInt(), 0xFF222222.toInt(), 0xFFD9B04A.toInt(), 0xFF7A2E1E.toInt(), 0xFFB0B0B0.toInt(), 0xFF5A3A6A.toInt(), 0xFF2E4A3A.toInt(), 0xFF3B2A1A.toInt(), 0xFF7A2E1E.toInt(), 0xFF222222.toInt())
+    private val people = List(10) { i ->
         val pal = mapOf(
             'r' to hairs[i], 'h' to 0xFFF2CBA3.toInt(), 'H' to 0xFFD9A982.toInt(), 'd' to 0xFF222222.toInt(),
             's' to shirts[i], 'S' to shirtShade[i], 'p' to 0xFF3A3F5C.toInt(), 'b' to 0xFF3B2A1A.toInt(),
@@ -104,7 +120,7 @@ class CivArt {
         listOf(sprite(PERSON1, pal), sprite(PERSON2, pal))
     }
 
-    fun person(colorIdx: Int, frame: Int): ImageBitmap = people[colorIdx.coerceIn(0, 7)][frame and 1]
+    fun person(colorIdx: Int, frame: Int): ImageBitmap = people[colorIdx.coerceIn(0, 9)][frame and 1]
 
     companion object {
         val OAK = listOf(
@@ -179,6 +195,39 @@ class CivArt {
             ".wwwwddddwwww.",
             ".WwwwddddwwwW.",
             ".bbbbbbbbbbbb.",
+        )
+        val TENT = listOf(
+            "......pp......",
+            ".....tttT.....",
+            "....ttttTT....",
+            "...tttttTTT...",
+            "..tttttddTTT..",
+            ".tttttdddTTTT.",
+            "tttttttdddTTTT",
+            "ttttttddddTTTT",
+        )
+        val ORE = listOf(
+            "....rrrr....",
+            "..rrRRRrrr..",
+            ".rrRoRrrorrd",
+            "rrrRRrrrOrrd",
+            "rorrrrrrdrrd",
+            "rrrdrorrrrdd",
+            ".rrrrrrOrddd",
+            "..dddddddd..",
+        )
+        val FORGE = listOf(
+            "....cccc....",
+            "....cCCc....",
+            "....cCCc....",
+            "...cccccc...",
+            "..ssssssss..",
+            ".ssssssssss.",
+            ".ssOOOOOOss.",
+            ".ssOyyyyOss.",
+            ".ssOyyyyOss.",
+            ".ssssssssss.",
+            "SSSSSSSSSSSS",
         )
         val FARM = listOf(
             "ffffffffffffff",
