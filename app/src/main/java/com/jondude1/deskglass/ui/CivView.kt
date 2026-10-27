@@ -4,6 +4,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -442,6 +444,7 @@ private fun DrawScope.drawWorld(
                 "hut" -> if (b.era <= 0) art.tent else if (b.era == 1) art.hut else art.hutStone
                 "farm" -> art.farm
                 "smelter" -> art.forge
+                "tower" -> art.tower
                 else -> art.fire[fireFrame]
             }
             val w = sp.width * ps
@@ -450,6 +453,18 @@ private fun DrawScope.drawWorld(
             val baseY = oy + (b.y + 0.97f) * ts
             if (b.type != "farm") shadow(cx, baseY, w * 0.9f, 3.5f * ps)
             img(sp, cx - w / 2f, baseY - hh, w, hh)
+            if (b.type == "tower") {
+                // a flag on top and a torch that glows at night
+                banner(cx + ps * 0.5f, baseY - hh + ps * 0.5f, ps * 8f, Color(sim.kingdoms[0].color), ps, t, 3f)
+                if (dark > 0.1f) {
+                    drawCircle(
+                        Color(0xFFFFB347).copy(alpha = min(0.5f, dark * 0.9f)),
+                        radius = ts * (0.9f + 0.08f * kotlin.math.sin(t * 7f)),
+                        center = Offset(cx, baseY - hh * 0.75f),
+                    )
+                    drawRect(Color(0xFFFFE070), Offset(cx - ps, baseY - hh * 0.8f), Size(ps * 2f, ps * 2.4f))
+                }
+            }
             // lit windows at night
             if (b.type == "hut" && b.era >= 1 && dark > 0.1f) {
                 val glow = Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f))
@@ -602,6 +617,13 @@ private fun DrawScope.drawWorld(
                 drawRect(Color.White.copy(alpha = 0.35f * a))
                 drawCircle(Color(0xFFFFF3B0).copy(alpha = a), radius = ts * (0.4f + age), center = Offset(cx, cy))
             }
+            "arrow" -> {
+                val a = 1f - p
+                val ax = cx - ts * 1.2f * (1f - p)
+                val ay = cy - ts * 2.2f * (1f - p)
+                drawLine(Color(0xFFF2E6C8).copy(alpha = a), Offset(ax, ay), Offset(ax + ts * 0.35f, ay + ts * 0.5f), strokeWidth = ps * 1.1f)
+                drawCircle(Color(0xFFFFE9A0).copy(alpha = 0.6f * p), radius = ts * 0.25f * p, center = Offset(cx, cy))
+            }
             "fire" -> {
                 val fade = if (p > 0.7f) (1f - p) / 0.3f else 1f
                 for (k in 0 until 5) {
@@ -714,14 +736,14 @@ private fun DrawScope.drawWorld(
 
     // predators
     for (p in sim.predators) {
-        val sp = if (p.kind == "bear") art.bear else art.wolf
-        val sc = if (p.kind == "bear") 1.15f else 1f
+        val sp = when (p.kind) { "bear" -> art.bear; "boar" -> art.boar; else -> art.wolf }
+        val sc = when (p.kind) { "bear" -> 1.15f; "boar" -> 0.95f; else -> 1f }
         val w = sp.width * ps * sc
         val h = sp.height * ps * sc
         val feet = oy + (p.y + 0.45f) * ts
         shadow(ox + p.x * ts, feet, w * 0.9f, 2.6f * ps)
         img(sp, ox + p.x * ts - w / 2f, feet - h, w, h)
-        val maxHp = if (p.kind == "bear") 90f else 40f
+        val maxHp = com.jondude1.deskglass.sim.predatorMaxHp(p.kind)
         if (p.hp < maxHp) {
             drawRect(Color(0xAA000000), Offset(ox + p.x * ts - w / 2f, feet - h - ps * 2.5f), Size(w, ps * 1.4f))
             drawRect(Color(0xFFE0453A), Offset(ox + p.x * ts - w / 2f, feet - h - ps * 2.5f), Size(w * (p.hp / maxHp).coerceIn(0f, 1f), ps * 1.4f))
@@ -917,6 +939,41 @@ private fun DrawScope.drawWorld(
 }
 
 /** The full-screen village: watch, read what everyone is thinking, and speak to the village. */
+/** What is threatening the village right now, or null when all is calm. */
+private fun threatText(sim: CivSim): String? {
+    val parts = ArrayList<String>()
+    val groups = sim.predators.groupBy { it.kind }
+    for ((k, v) in groups) parts.add("${v.size} ${k}${if (v.size == 1) "" else "s"} prowling")
+    val war = sim.wars().firstOrNull { it.first.id == 0 || it.second.id == 0 }
+    if (war != null) parts.add("war: ${war.first.name} vs ${war.second.name}")
+    if (parts.isEmpty()) return null
+    val towers = sim.buildings.count { it.type == "tower" }
+    if (towers > 0) parts.add("$towers watchtower${if (towers == 1) "" else "s"} manned")
+    return parts.joinToString(" · ")
+}
+
+@Composable
+private fun ThreatChip(sim: CivSim, modifier: Modifier = Modifier) {
+    val text = threatText(sim) ?: return
+    Box(
+        modifier
+            .background(Color(0xCC5A1A1A), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    ) {
+        Text("⚠ $text", color = Color(0xFFFFD9CF), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** Colour a log line by what kind of news it is. */
+private fun newsTint(line: String): Color {
+    val l = line.lowercase()
+    return when {
+        listOf("killed", "war", "wolves", "wolf", "bear", "boar", "falls", "plague", "attack", "slain", "mourns").any { l.contains(it) } -> Color(0xFFFF9C8A)
+        listOf("built", "raise", "born", "feast", "berries", "welcome", "alliance", "trade").any { l.contains(it) } -> Color(0xFFA6E3A1)
+        else -> Glass.InkDim
+    }
+}
+
 @Composable
 fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean) -> Unit, onBack: () -> Unit) {
     val sim = vm.civ
@@ -942,6 +999,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 fontSize = 15.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             )
+            ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
             if (narration != null) {
                 Text(
                     narration!!,
@@ -971,7 +1029,10 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
         Row(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(Modifier.weight(0.68f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 GlassCard(Modifier.weight(1f).fillMaxWidth(), corner = 24.dp) {
-                    CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
+                    Box(Modifier.fillMaxSize()) {
+                        CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
+                        ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+                    }
                 }
             }
             Column(Modifier.weight(0.32f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1040,8 +1101,8 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                         }
                     }
                     Text("NEWS", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))
-                    for (line in sim.log.takeLast(8).reversed()) {
-                        Text(line, color = Glass.InkDim, fontSize = 13.sp)
+                    for (line in sim.log.takeLast(12).reversed()) {
+                        Text("• $line", color = newsTint(line), fontSize = 13.sp)
                     }
                 }
                 OutlinedTextField(

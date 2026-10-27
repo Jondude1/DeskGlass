@@ -42,9 +42,11 @@ val WORLD_AGES = listOf(
     WorldAgeInfo("Age of Despair", "Hunger, doubt and endless war.", 0xFF30303A, 0.20f, "fog", -1.4f, 0.7f, 1.7f, 0.18f),
 )
 
-/** A wolf or bear hunting near the village. */
+fun predatorMaxHp(kind: String): Float = when (kind) { "bear" -> 90f; "boar" -> 60f; else -> 40f }
+
+/** A wolf, boar or bear hunting near the village. */
 class Predator(val kind: String, var x: Float, var y: Float) {
-    var hp = if (kind == "bear") 90f else 40f
+    var hp = predatorMaxHp(kind)
     var cool = 0f
     var life = 0f
     var angle = 0f

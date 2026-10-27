@@ -1801,9 +1801,32 @@ class CivSim(
     private fun isFighter(v: Villager) = !isChild(v) && v.hp > 35f &&
         (age >= 2 || v.job in setOf("Hunter", "Scout", "Builder", "Woodcutter", "Miner", "Bronzesmith", "Blacksmith"))
 
+    private var nextTowerAt = 0.0
+
+    /** When danger looms, the villagers raise a watchtower on their own. Towers shoot at nearby predators. */
+    private fun defenceTick() {
+        if (age < 1 || time < nextTowerAt || villagers.size < 3) return
+        val danger = predators.isNotEmpty() || wars().any { it.first.id == 0 || it.second.id == 0 }
+        if (!danger) return
+        nextTowerAt = time + 90.0
+        val have = count("tower")
+        if (have >= 3 || wood < 8 || stone < 2) return
+        val site = findSite()
+        if (site < 0) return
+        wood -= 8
+        stone -= 2
+        addBuilding("tower", site % GW, site / GW)
+        val builder = villagers.firstOrNull { it.job == "Builder" } ?: villagers[rnd.nextInt(villagers.size)]
+        builder.remember("helped raise a watchtower")
+        event("The villagers raise a watchtower at the edge of the village. Archers will watch the woods.")
+        mark("A watchtower was built.")
+    }
+
     private fun predatorTick(dt: Float) {
+        defenceTick()
         if (predators.isEmpty()) return
-        val fires = buildings.filter { it.type == "campfire" }
+        val fires = buildings.filter { it.type == "campfire" || it.type == "tower" }
+        val towers = buildings.filter { it.type == "tower" }
         for (p in predators.toList()) {
             p.life += dt
             if (p.cool > 0f) p.cool -= dt
@@ -1818,7 +1841,7 @@ class CivSim(
                     prey = v
                 }
             }
-            val speed = (if (p.kind == "bear") 1.5f else 2.1f) * dt
+            val speed = (when (p.kind) { "bear" -> 1.5f; "boar" -> 2.4f; else -> 2.1f }) * dt
             if (p.life > 150f && prey == null) {
                 // the hunt is over: slip away toward the nearest map edge
                 val tx = if (p.x < GW / 2f) 0f else GW.toFloat()
@@ -1836,7 +1859,7 @@ class CivSim(
                 val d = max(0.05f, hypot(dx, dy))
                 if (d > 0.8f) stepPredator(p, dx / d * speed, dy / d * speed)
                 else if (p.cool <= 0f) {
-                    val dmg = (if (p.kind == "bear") 22f else 12f) * (if (isChild(prey)) 1.5f else 1f)
+                    val dmg = (when (p.kind) { "bear" -> 22f; "boar" -> 16f; else -> 12f }) * (if (isChild(prey)) 1.5f else 1f)
                     prey.hp -= dmg
                     prey.harmedBy = p.kind
                     prey.happiness = max(0f, prey.happiness - 12f)
@@ -1849,6 +1872,12 @@ class CivSim(
                 if (rnd.nextInt(60) == 0) p.angle += (rnd.nextFloat() - 0.5f) * 2.4f
                 stepPredator(p, kotlin.math.cos(p.angle) * speed * 0.5f, kotlin.math.sin(p.angle) * speed * 0.5f)
             }
+            for (tw in towers) {
+                if (hypot(tw.x + 0.5f - p.x, tw.y + 0.5f - p.y) < 6.5f) {
+                    p.hp -= 6f * dt
+                    if (rnd.nextInt(45) == 0) fx.add(Fx("arrow", p.x, p.y, time, 0.6f))
+                }
+            }
             val fighters = villagers.filter { isFighter(it) && hypot(it.x - p.x, it.y - p.y) < 2.6f }
             if (fighters.isNotEmpty()) {
                 p.hp -= fighters.size * (6f + 3f * toolBonus()) * dt
@@ -1856,7 +1885,7 @@ class CivSim(
             }
             if (p.hp <= 0f) {
                 predators.remove(p)
-                val meat = if (p.kind == "bear") 8 else 4
+                val meat = when (p.kind) { "bear" -> 8; "boar" -> 6; else -> 4 }
                 food += meat
                 val hero = fighters.maxByOrNull { it.hp }
                 if (hero != null) {
@@ -2026,7 +2055,11 @@ class CivSim(
                 alertUntil = time + 80.0
                 for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
                 val bearLoose = (worldAge == 4 || worldAge == 6 || worldAge == 9) && rnd.nextInt(3) == 0
-                if (bearLoose) {
+                if (!bearLoose && rnd.nextInt(3) == 0) {
+                    val n = 1 + rnd.nextInt(2)
+                    spawnPredators("boar", n)
+                    event("Wild boars crash out of the undergrowth and charge toward the village!")
+                } else if (bearLoose) {
                     spawnPredators("bear", 1)
                     event("A huge bear crashes out of the forest and heads for the village!")
                 } else {

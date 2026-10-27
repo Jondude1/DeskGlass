@@ -109,6 +109,15 @@ class CivArt {
     val bear = sprite(BEAR, mapOf(
         'b' to 0xFF6B4A2B.toInt(), 'B' to 0xFF4A3220.toInt(), 'e' to 0xFFFF3030.toInt(), 'n' to 0xFFC9A26B.toInt(),
     ))
+    val boar = sprite(BOAR, mapOf(
+        'b' to 0xFF6B4A33.toInt(), 'B' to 0xFF4A3322.toInt(), 'k' to 0xFF2A1C12.toInt(),
+        'w' to 0xFFF2E6C8.toInt(), 'e' to 0xFFFF4040.toInt(), 'p' to 0xFFD99A8A.toInt(),
+    ))
+    val tower = sprite(TOWER, mapOf(
+        's' to 0xFFB9BCC6.toInt(), 'S' to 0xFF8D909C.toInt(), 'k' to 0xFF2A2A34.toInt(),
+        'w' to 0xFF8A5A2B.toInt(), 'W' to 0xFF6B4220.toInt(), 'r' to 0xFFB8452F.toInt(), 'R' to 0xFF8E3322.toInt(),
+        'f' to 0xFFFFC34A.toInt(), 'd' to 0xFF4A2E1B.toInt(),
+    ))
     val farm = sprite(FARM, mapOf(
         'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
         'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
@@ -386,6 +395,34 @@ class CivArt {
             ".bbbbbbbbbb.",
             ".BB.BB..BB..",
             ".BB.BB..BB..",
+        )
+        val BOAR = listOf(
+            "..........",
+            "...kk.....",
+            "bbbbbbbb..",
+            "bBbbbbbbbb",
+            "bbbbbbbbew",
+            "bbbbbbbbpw",
+            ".bbbbbbbbp",
+            ".B.B..B.B.",
+            ".B.B..B.B.",
+        )
+        val TOWER = listOf(
+            "....rrrr....",
+            "...rrRRrr...",
+            "..rrRRRRrr..",
+            "...wwwwww...",
+            "..wWwwwwWw..",
+            "..wwkkkkww..",
+            "...ssssss...",
+            "...sSssSs...",
+            "...skkkks...",
+            "...ssssss...",
+            "...sSssSs...",
+            "...ssssss...",
+            "..ssSssSss..",
+            "..sssddsss..",
+            ".SSSSddSSSS.",
         )
         val FARM = listOf(
             "ffffffffffffff",
