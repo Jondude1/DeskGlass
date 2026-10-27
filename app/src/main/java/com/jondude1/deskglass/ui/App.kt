@@ -69,13 +69,16 @@ fun DeskGlassApp(vm: MainViewModel) {
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     val now = rememberNow()
     val active by remember { derivedStateOf { isActiveHours(now.value) } }
+    var villageFull by rememberSaveable { mutableStateOf(false) }
+    // A fullscreen village never dims or sleeps, even after hours.
+    val awake = active || (screen == Screen.Village && villageFull)
 
     // Really lower the backlight outside active hours, not just darken the picture.
     val activity = LocalContext.current.findActivity()
-    LaunchedEffect(active) {
+    LaunchedEffect(awake) {
         activity?.window?.let { w ->
             val lp = w.attributes
-            lp.screenBrightness = if (active) {
+            lp.screenBrightness = if (awake) {
                 WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             } else {
                 0.08f
@@ -84,12 +87,14 @@ fun DeskGlassApp(vm: MainViewModel) {
         }
     }
 
-    BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
+    BackHandler(enabled = screen != Screen.Home) {
+        if (screen == Screen.Village && villageFull) villageFull = false else screen = Screen.Home
+    }
 
-    val dim by animateFloatAsState(if (active) 0f else 0.5f, animationSpec = tween(2500), label = "dim")
+    val dim by animateFloatAsState(if (awake) 0f else 0.5f, animationSpec = tween(2500), label = "dim")
 
     Box(Modifier.fillMaxSize()) {
-        AuroraBackground(animate = active)
+        AuroraBackground(animate = awake)
 
         // The village, running behind the idle home screen only.
         val narration by vm.narration.collectAsState()
@@ -112,7 +117,7 @@ fun DeskGlassApp(vm: MainViewModel) {
                 Screen.Notes -> NotesScreen(vm) { screen = Screen.Home }
                 Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
                 Screen.Chat -> ChatScreen(vm, { screen = Screen.Home }) { screen = Screen.Settings }
-                Screen.Village -> VillageScreen(vm) { screen = Screen.Home }
+                Screen.Village -> VillageScreen(vm, villageFull, { villageFull = it }) { screen = Screen.Home }
                 Screen.Settings -> SettingsScreen(vm) { screen = Screen.Home }
             }
         }

@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -352,7 +353,7 @@ private fun DrawScope.drawWorld(
 
 /** The full-screen village: watch, read what everyone is thinking, and speak to the village. */
 @Composable
-fun VillageScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean) -> Unit, onBack: () -> Unit) {
     val sim = vm.civ
     var tick by remember { mutableLongStateOf(0L) }
     var whisper by remember { mutableStateOf("") }
@@ -364,17 +365,37 @@ fun VillageScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
     @Suppress("UNUSED_VARIABLE") val t = tick
+    val narration by vm.narration.collectAsState()
+
+    if (fullscreen) {
+        Box(Modifier.fillMaxSize()) {
+            CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
+            GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
+            if (narration != null) {
+                Text(
+                    narration!!,
+                    color = Glass.InkDim,
+                    fontSize = 17.sp,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp),
+                )
+            }
+        }
+        return
+    }
 
     Column(Modifier.fillMaxSize()) {
         BackBar("Village", onBack, trailing = {
-            GlassButton(if (confirmReset) "Tap again to start over" else "Start over", {
-                if (confirmReset) {
-                    sim.restart()
-                    confirmReset = false
-                } else {
-                    confirmReset = true
-                }
-            })
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GlassButton("Fullscreen", { onFullscreen(true) }, filled = true)
+                GlassButton(if (confirmReset) "Tap again to start over" else "Start over", {
+                    if (confirmReset) {
+                        sim.restart()
+                        confirmReset = false
+                    } else {
+                        confirmReset = true
+                    }
+                })
+            }
         })
         Row(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             GlassCard(Modifier.weight(0.68f).fillMaxHeight(), corner = 24.dp) {
