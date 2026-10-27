@@ -132,8 +132,8 @@ fun DeskGlassApp(vm: MainViewModel) {
                     maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 36.dp, bottom = 100.dp)
+                        .align(Alignment.TopStart)
+                        .padding(start = 36.dp, top = 36.dp)
                         .widthIn(max = 380.dp)
                         .background(Color(0xCC05070D), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp),
