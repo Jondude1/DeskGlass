@@ -112,6 +112,6 @@ class GameStore(context: Context) {
     }
 
     companion object {
-        private const val RELEASES = "https://api.github.com/repos/Jondude1/DeskGlass/releases?per_page=50"
+        private const val RELEASES = "https://api.github.com/repos/Jondude1/DeskGlass/releases?per_page=12"
     }
 }
