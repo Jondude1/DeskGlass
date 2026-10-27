@@ -86,10 +86,7 @@ fun DeskGlassApp(vm: MainViewModel) {
             when (s) {
                 Screen.Home -> HomeScreen(vm, now, active) { screen = it }
                 Screen.Calendar -> CalendarScreen(vm, now) { screen = Screen.Home }
-                Screen.Notes -> PlaceholderScreen(
-                    "Notes",
-                    "Typed and S Pen notes, synced to Google Drive.",
-                ) { screen = Screen.Home }
+                Screen.Notes -> NotesScreen(vm) { screen = Screen.Home }
                 Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
                 Screen.Chat -> PlaceholderScreen(
                     "Chat",

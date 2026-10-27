@@ -7,6 +7,8 @@ import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.Event
 import com.jondude1.deskglass.data.EventStore
+import com.jondude1.deskglass.data.Note
+import com.jondude1.deskglass.data.NoteStore
 import com.jondude1.deskglass.data.Prefs
 import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
@@ -35,6 +37,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
     private val eventStore = EventStore(app)
     val events: StateFlow<List<Event>> = eventStore.events
+
+    private val noteStore = NoteStore(app)
+    val notes: StateFlow<List<Note>> = noteStore.notes
+
+    fun saveNote(note: Note) = noteStore.upsert(note)
+    fun deleteNote(id: String) = noteStore.delete(id)
+    fun pruneEmptyNotes(keepId: String?) = noteStore.pruneEmpty(keepId)
 
     private val checklistStore = ChecklistStore(app)
     val checklists: StateFlow<List<Checklist>> = checklistStore.lists
