@@ -3,6 +3,8 @@ package com.jondude1.deskglass
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jondude1.deskglass.data.Event
+import com.jondude1.deskglass.data.EventStore
 import com.jondude1.deskglass.data.Prefs
 import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
@@ -29,6 +31,11 @@ sealed interface UpdateUi {
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
+    private val eventStore = EventStore(app)
+    val events: StateFlow<List<Event>> = eventStore.events
+
+    fun saveEvent(event: Event) = eventStore.upsert(event)
+    fun deleteEvent(id: String) = eventStore.delete(id)
 
     private val _weather = MutableStateFlow<WeatherState>(WeatherState.NeedsCity)
     val weather: StateFlow<WeatherState> = _weather.asStateFlow()

@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.jondude1.deskglass.BuildConfig
 import com.jondude1.deskglass.MainViewModel
 
-enum class Screen { Home, Notes, Checklists, Chat, Settings }
+enum class Screen { Home, Calendar, Notes, Checklists, Chat, Settings }
 
 @Composable
 fun BackBar(title: String, onBack: () -> Unit) {

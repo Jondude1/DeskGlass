@@ -50,6 +50,7 @@ fun HomeScreen(
     onOpen: (Screen) -> Unit,
 ) {
     val weather by vm.weather.collectAsState()
+    val events by vm.events.collectAsState()
     val panels = remember { Panel.values().toList() }
     var index by remember { mutableIntStateOf(0) }
     var pausedUntil by remember { mutableLongStateOf(0L) }
@@ -87,7 +88,7 @@ fun HomeScreen(
                     when (panels[i]) {
                         Panel.Clock -> ClockPanel(now)
                         Panel.Weather -> WeatherPanel(weather)
-                        Panel.Calendar -> CalendarPanel(now)
+                        Panel.Calendar -> CalendarPanel(now, events)
                     }
                 }
             }
@@ -150,6 +151,7 @@ private fun Dock(onOpen: (Screen) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            GlassButton("Calendar", { onOpen(Screen.Calendar) })
             GlassButton("Notes", { onOpen(Screen.Notes) })
             GlassButton("Checklists", { onOpen(Screen.Checklists) })
             GlassButton("Chat", { onOpen(Screen.Chat) })

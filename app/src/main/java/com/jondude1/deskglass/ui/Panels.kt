@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import com.jondude1.deskglass.data.Event
+import java.time.Duration
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -242,7 +246,7 @@ private fun DrawScope.drawCloud(x: Float, y: Float, w: Float, color: Color) {
 // ------------------------------------------------------------- Calendar
 
 @Composable
-fun CalendarPanel(now: State<LocalDateTime>) {
+fun CalendarPanel(now: State<LocalDateTime>, events: List<Event>) {
     val t = now.value
     val today = t.toLocalDate()
     val month = YearMonth.from(today)
@@ -257,7 +261,7 @@ fun CalendarPanel(now: State<LocalDateTime>) {
             horizontalArrangement = Arrangement.spacedBy(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.width(250.dp)) {
+            Column(Modifier.width(300.dp)) {
                 Text(
                     today.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()).uppercase(),
                     color = Glass.InkFaint,
@@ -277,53 +281,56 @@ fun CalendarPanel(now: State<LocalDateTime>) {
                     fontWeight = FontWeight.Light,
                 )
                 Spacer(Modifier.height(18.dp))
-                Text("Nothing scheduled", color = Glass.InkFaint, fontSize = 20.sp)
+                TodayList(events, t)
             }
-            MonthGrid(month = month, todayDay = today.dayOfMonth)
+            val eventDays = events.filter { YearMonth.from(it.date) == month }.map { it.date.dayOfMonth }.toSet()
+            CalendarGrid(month = month, today = today, selected = today, eventDays = eventDays)
         }
     }
 }
 
 @Composable
-private fun MonthGrid(month: YearMonth, todayDay: Int) {
-    val offset = month.atDay(1).dayOfWeek.value % 7 // Sunday = 0
-    val days = month.lengthOfMonth()
-    val weeks = (offset + days + 6) / 7
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row {
-            for (d in listOf("S", "M", "T", "W", "T", "F", "S")) {
-                Box(Modifier.size(width = 54.dp, height = 30.dp), contentAlignment = Alignment.Center) {
-                    Text(d, color = Glass.InkFaint, fontSize = 16.sp, letterSpacing = 2.sp)
-                }
+private fun TodayList(events: List<Event>, now: LocalDateTime) {
+    val todays = events.filter { it.date == now.toLocalDate() }
+    if (todays.isEmpty()) {
+        Text("Nothing scheduled", color = Glass.InkFaint, fontSize = 20.sp)
+        return
+    }
+    val nowTime = now.toLocalTime()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (e in todays.take(4)) {
+            val start = e.start
+            // A quiet highlight for anything starting in the next half hour, or happening now.
+            val soon = start != null &&
+                Duration.between(nowTime, start).toMinutes() in 0..30
+            val over = start != null && !(e.end ?: start.plusHours(1)).isAfter(nowTime)
+            val shape = RoundedCornerShape(16.dp)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(if (soon) Glass.Accent.copy(alpha = 0.22f) else Color.Transparent)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (start == null) "All day" else formatTime(start),
+                    color = if (soon) Glass.Accent else Glass.InkFaint,
+                    fontSize = 16.sp,
+                )
+                Text(
+                    e.title,
+                    color = if (over) Glass.InkFaint else Glass.Ink,
+                    fontSize = 20.sp,
+                    fontWeight = if (soon) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
-        for (week in 0 until weeks) {
-            Row {
-                for (col in 0 until 7) {
-                    val day = week * 7 + col - offset + 1
-                    Box(Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-                        if (day in 1..days) {
-                            val isToday = day == todayDay
-                            Box(
-                                Modifier
-                                    .size(44.dp)
-                                    .background(
-                                        if (isToday) Glass.Accent.copy(alpha = 0.9f) else Color.Transparent,
-                                        CircleShape,
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    day.toString(),
-                                    color = if (isToday) Color(0xFF0B1020) else Glass.Ink,
-                                    fontSize = 21.sp,
-                                    fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Light,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        if (todays.size > 4) {
+            Text("+${todays.size - 4} more", color = Glass.InkFaint, fontSize = 16.sp)
         }
     }
 }

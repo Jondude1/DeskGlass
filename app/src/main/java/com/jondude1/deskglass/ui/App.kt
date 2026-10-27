@@ -85,6 +85,7 @@ fun DeskGlassApp(vm: MainViewModel) {
         Crossfade(targetState = screen, animationSpec = tween(350), label = "screen") { s ->
             when (s) {
                 Screen.Home -> HomeScreen(vm, now, active) { screen = it }
+                Screen.Calendar -> CalendarScreen(vm, now) { screen = Screen.Home }
                 Screen.Notes -> PlaceholderScreen(
                     "Notes",
                     "Typed and S Pen notes, synced to Google Drive.",
