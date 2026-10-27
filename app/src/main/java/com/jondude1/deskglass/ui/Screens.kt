@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jondude1.deskglass.BuildConfig
@@ -37,7 +39,7 @@ import com.jondude1.deskglass.MainViewModel
 enum class Screen { Home, Calendar, Notes, Checklists, Chat, Settings }
 
 @Composable
-fun BackBar(title: String, onBack: () -> Unit) {
+fun BackBar(title: String, onBack: () -> Unit, trailing: @Composable (() -> Unit)? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -45,6 +47,10 @@ fun BackBar(title: String, onBack: () -> Unit) {
     ) {
         GlassButton("‹  Home", onBack)
         Text(title, color = Glass.Ink, fontSize = 34.sp, fontWeight = FontWeight.Light)
+        if (trailing != null) {
+            Spacer(Modifier.weight(1f))
+            trailing()
+        }
     }
 }
 
@@ -68,6 +74,13 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val cityStatus by vm.cityStatus.collectAsState()
     val updateStatus by vm.updateStatus.collectAsState()
     var city by remember { mutableStateOf(vm.prefs.place?.label ?: "") }
+    val hasKey by vm.hasApiKey.collectAsState()
+    val facts by vm.memoryFacts.collectAsState()
+    var keyDraft by remember { mutableStateOf("") }
+    var nameDraft by remember { mutableStateOf(vm.prefs.userName) }
+    var modelDraft by remember { mutableStateOf(vm.prefs.chatModel) }
+    var aiStatus by remember { mutableStateOf<String?>(null) }
+    var confirmMemory by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         BackBar("Settings", onBack)
@@ -98,6 +111,77 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         GlassButton("Save", { vm.saveCity(city) }, filled = true)
                     }
                     cityStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp) }
+                }
+            }
+
+            GlassCard(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionLabel("CHAT AND AI")
+                    Text(
+                        if (hasKey) vm.apiKeyHint().ifEmpty { "API key saved" } else "No API key yet",
+                        color = Glass.Ink,
+                        fontSize = 20.sp,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        OutlinedTextField(
+                            value = keyDraft,
+                            onValueChange = { keyDraft = it },
+                            singleLine = true,
+                            placeholder = { Text("Paste your Anthropic API key", color = Glass.InkFaint) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            colors = glassFieldColors(),
+                            modifier = Modifier.weight(1f),
+                        )
+                        GlassButton("Save key", {
+                            if (keyDraft.isNotBlank()) {
+                                vm.saveApiKey(keyDraft)
+                                keyDraft = ""
+                                aiStatus = "Key saved."
+                            }
+                        }, filled = true)
+                    }
+                    Text("Your name", color = Glass.InkDim, fontSize = 18.sp)
+                    OutlinedTextField(
+                        value = nameDraft,
+                        onValueChange = { nameDraft = it },
+                        singleLine = true,
+                        colors = glassFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("Chat model", color = Glass.InkDim, fontSize = 18.sp)
+                    OutlinedTextField(
+                        value = modelDraft,
+                        onValueChange = { modelDraft = it },
+                        singleLine = true,
+                        colors = glassFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        GlassButton("Save name and model", {
+                            vm.prefs.userName = nameDraft
+                            vm.prefs.chatModel = modelDraft
+                            modelDraft = vm.prefs.chatModel
+                            aiStatus = "Saved."
+                        })
+                        aiStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp) }
+                    }
+                    Text(
+                        if (facts.isEmpty()) "Claude hasn't saved any memories about you yet."
+                        else "Claude remembers ${facts.size} thing${if (facts.size == 1) "" else "s"} about you.",
+                        color = Glass.InkDim,
+                        fontSize = 17.sp,
+                    )
+                    if (facts.isNotEmpty()) {
+                        GlassButton(if (confirmMemory) "Tap again to erase" else "Clear memory", {
+                            if (confirmMemory) {
+                                vm.clearMemory()
+                                confirmMemory = false
+                            } else {
+                                confirmMemory = true
+                            }
+                        })
+                    }
                 }
             }
 

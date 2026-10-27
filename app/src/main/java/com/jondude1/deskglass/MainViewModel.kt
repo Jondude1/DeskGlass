@@ -3,6 +3,11 @@ package com.jondude1.deskglass
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jondude1.deskglass.ai.ApiException
+import com.jondude1.deskglass.ai.ChatEngine
+import com.jondude1.deskglass.ai.ChatMessage
+import com.jondude1.deskglass.ai.ChatStore
+import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.Event
@@ -58,6 +63,69 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveEvent(event: Event) = eventStore.upsert(event)
     fun deleteEvent(id: String) = eventStore.delete(id)
+
+    // ---- Chat ----
+
+    private val chatStore = ChatStore(app)
+    private val memoryStore = MemoryStore(app)
+    private val chatEngine = ChatEngine(prefs, chatStore, memoryStore, eventStore, checklistStore, noteStore)
+
+    val chatMessages: StateFlow<List<ChatMessage>> = chatStore.messages
+    val memoryFacts: StateFlow<List<String>> = memoryStore.facts
+
+    private val _chatBusy = MutableStateFlow(false)
+    val chatBusy: StateFlow<Boolean> = _chatBusy.asStateFlow()
+
+    private val _chatError = MutableStateFlow<String?>(null)
+    val chatError: StateFlow<String?> = _chatError.asStateFlow()
+
+    private val _hasApiKey = MutableStateFlow(prefs.apiKey.isNotBlank())
+    val hasApiKey: StateFlow<Boolean> = _hasApiKey.asStateFlow()
+
+    val userName: String get() = prefs.userName
+
+    fun sendChat(text: String) {
+        if (_chatBusy.value || text.isBlank()) return
+        viewModelScope.launch {
+            _chatBusy.value = true
+            _chatError.value = null
+            try {
+                chatEngine.send(text)
+            } catch (e: Exception) {
+                _chatError.value = friendly(e)
+            } finally {
+                _chatBusy.value = false
+            }
+        }
+    }
+
+    fun newChat() {
+        chatStore.clear()
+        _chatError.value = null
+    }
+
+    fun clearMemory() = memoryStore.clear()
+
+    fun saveApiKey(key: String) {
+        prefs.apiKey = key
+        _hasApiKey.value = prefs.apiKey.isNotBlank()
+    }
+
+    fun apiKeyHint(): String {
+        val k = prefs.apiKey
+        return if (k.length < 8) "" else "Saved key ending in ${k.takeLast(4)}"
+    }
+
+    private fun friendly(e: Exception): String = when {
+        e is ApiException && e.code == 401 -> "Claude rejected the API key. Check it in Settings."
+        e is ApiException && e.code == 404 -> "Claude couldn't find that model. Check the model name in Settings."
+        e is ApiException && e.code == 429 -> "Too many requests right now. Try again in a moment."
+        e is ApiException && e.code >= 500 -> "Claude is busy right now. Try again in a moment."
+        e is ApiException -> e.message ?: "The request failed."
+        e is java.net.UnknownHostException || e is java.net.SocketTimeoutException ->
+            "Can't reach Claude. Check the internet connection."
+        else -> e.message ?: "Something went wrong."
+    }
 
     private val _weather = MutableStateFlow<WeatherState>(WeatherState.NeedsCity)
     val weather: StateFlow<WeatherState> = _weather.asStateFlow()

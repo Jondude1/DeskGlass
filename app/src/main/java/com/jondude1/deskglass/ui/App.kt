@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -82,16 +83,13 @@ fun DeskGlassApp(vm: MainViewModel) {
     Box(Modifier.fillMaxSize()) {
         AuroraBackground(animate = active)
 
-        Crossfade(targetState = screen, animationSpec = tween(350), label = "screen") { s ->
+        Crossfade(targetState = screen, modifier = Modifier.imePadding(), animationSpec = tween(350), label = "screen") { s ->
             when (s) {
                 Screen.Home -> HomeScreen(vm, now, active) { screen = it }
                 Screen.Calendar -> CalendarScreen(vm, now) { screen = Screen.Home }
                 Screen.Notes -> NotesScreen(vm) { screen = Screen.Home }
                 Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
-                Screen.Chat -> PlaceholderScreen(
-                    "Chat",
-                    "A Claude chat for your breaks, with memory.",
-                ) { screen = Screen.Home }
+                Screen.Chat -> ChatScreen(vm, { screen = Screen.Home }) { screen = Screen.Settings }
                 Screen.Settings -> SettingsScreen(vm) { screen = Screen.Home }
             }
         }
