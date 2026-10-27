@@ -142,7 +142,7 @@ fun DeskGlassApp(vm: MainViewModel) {
             GlassButton(
                 "Open village",
                 { screen = Screen.Village },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 40.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 36.dp, top = 36.dp),
             )
         }
 
