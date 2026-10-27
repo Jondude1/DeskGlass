@@ -1,2 +1,0 @@
-title: Bat Cellar
-blurb: A tiny test survivor: a hero shoots gem-dropping bats in a dark cellar.

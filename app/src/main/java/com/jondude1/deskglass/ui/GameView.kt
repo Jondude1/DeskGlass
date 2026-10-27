@@ -4,14 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Color as AColor
 import android.view.View
 import android.webkit.JavascriptInterface
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.webkit.WebViewClient
-import com.jondude1.deskglass.data.GameInfo
-import com.jondude1.deskglass.data.GameStore
-import java.io.ByteArrayInputStream
-import java.io.FileInputStream
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -31,34 +24,14 @@ class GameBridge(private val onNarrate: (String) -> Unit) {
     }
 }
 
-private val MIME = mapOf(
-    "html" to "text/html", "js" to "text/javascript", "wasm" to "application/wasm",
-    "png" to "image/png", "json" to "application/json", "css" to "text/css",
-    "pck" to "application/octet-stream",
-)
-
-private fun notFound() = WebResourceResponse(
-    "text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0))
-)
-
-private fun serve(store: GameStore, game: GameInfo, mode: String, request: WebResourceRequest): WebResourceResponse {
-    val url = request.url
-    if (url.host != "game.local") return notFound()
-    val path = url.path.orEmpty().trimStart('/').ifEmpty { "index.html" }
-    val file = store.resolve(game, path) ?: return notFound()
-    val ext = path.substringAfterLast('.', "")
-    val mime = MIME[ext] ?: "application/octet-stream"
-    if (path == "index.html") {
-        val tag = "<script>window.DG_MODE=\"$mode\";</script>"
-        var html = file.readText()
-        val head = Regex("<head[^>]*>", RegexOption.IGNORE_CASE).find(html)
-        html = if (head != null) html.substring(0, head.range.last + 1) + tag + html.substring(head.range.last + 1) else tag + html
-        return WebResourceResponse(mime, "utf-8", ByteArrayInputStream(html.toByteArray()))
+private fun withMode(html: String, mode: String): String {
+    val tag = "<script>window.DG_MODE=\"$mode\";</script>"
+    val head = Regex("<head[^>]*>", RegexOption.IGNORE_CASE).find(html)
+    return if (head != null) {
+        html.substring(0, head.range.last + 1) + tag + html.substring(head.range.last + 1)
+    } else {
+        tag + html
     }
-    return WebResourceResponse(
-        mime, if (mime.startsWith("text")) "utf-8" else null, 200, "OK",
-        mapOf("Content-Length" to file.length().toString()), FileInputStream(file),
-    )
 }
 
 /**
@@ -67,8 +40,7 @@ private fun serve(store: GameStore, game: GameInfo, mode: String, request: WebRe
 @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
 fun GameView(
-    store: GameStore,
-    game: GameInfo,
+    html: String,
     mode: String,
     interactive: Boolean,
     onNarrate: (String) -> Unit,
@@ -103,6 +75,7 @@ fun GameView(
                     domStorageEnabled = false
                     allowFileAccess = false
                     allowContentAccess = false
+                    blockNetworkLoads = true
                     mediaPlaybackRequiresUserGesture = true
                 }
                 if (!interactive) {
@@ -110,12 +83,8 @@ fun GameView(
                     isFocusable = false
                     setOnTouchListener { _, _ -> true }
                 }
-                webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse =
-                        serve(store, game, mode, request)
-                }
                 addJavascriptInterface(GameBridge(onNarrate), "DeskGlass")
-                loadUrl("https://game.local/index.html")
+                loadDataWithBaseURL("https://game.local/", withMode(html, mode), "text/html", "utf-8", null)
             }
         },
         onRelease = {

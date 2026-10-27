@@ -11,6 +11,7 @@ import com.jondude1.deskglass.ai.ApiException
 import com.jondude1.deskglass.ai.ChatEngine
 import com.jondude1.deskglass.ai.ChatMessage
 import com.jondude1.deskglass.ai.ChatStore
+import com.jondude1.deskglass.ai.GameGenerator
 import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
@@ -26,7 +27,9 @@ import com.jondude1.deskglass.data.Prefs
 import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
 import com.jondude1.deskglass.update.UpdateInfo
+import com.jondude1.deskglass.ui.isActiveHours
 import com.jondude1.deskglass.update.Updater
+import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -192,8 +195,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Games ----
 
-    val gameStore = GameStore(app)
+    private val gameStore = GameStore(app)
     val games: StateFlow<List<GameInfo>> = gameStore.games
+    private val gameGenerator = GameGenerator(prefs)
     private val gameMutex = Mutex()
 
     private val _gameStatus = MutableStateFlow<String?>(null)
@@ -205,6 +209,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _play = MutableStateFlow<PlayRequest?>(null)
     val play: StateFlow<PlayRequest?> = _play.asStateFlow()
 
+    fun gameHtml(id: String): String? = gameStore.html(id)
     fun startPlay(id: String, mode: String) { _play.value = PlayRequest(id, mode) }
 
     /** Called from the game page, on a background thread. */
@@ -220,31 +225,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearNarration() { _narration.value = null }
 
-    fun checkForGames(announce: Boolean) {
-        viewModelScope.launch {
-            gameMutex.withLock {
-                if (announce) _gameStatus.value = "Looking for new games…"
-                try {
-                    val n = gameStore.sync()
-                    _gameStatus.value = when {
-                        n > 0 -> "Downloaded $n new game${if (n == 1) "" else "s"}."
-                        announce -> "No new games yet. They are made at 8, 12 and 4 on weekdays."
-                        else -> _gameStatus.value
-                    }
-                } catch (e: Exception) {
-                    if (announce) _gameStatus.value = "Couldn't check for games: " + friendly(e)
-                    else errorLog.add("Games", "${e.javaClass.simpleName}: ${e.message}")
-                }
-            }
+    fun makeGameNow() {
+        viewModelScope.launch { generateGame(manual = true) }
+    }
+
+    private suspend fun generateGame(manual: Boolean): Boolean = gameMutex.withLock {
+        if (prefs.apiKey.isBlank()) {
+            if (manual) _gameStatus.value = "Add your API key in Settings first."
+            return@withLock false
+        }
+        _gameStatus.value = "Claude is writing a new game… this takes a couple of minutes."
+        try {
+            val g = gameGenerator.generate(gameStore.games.value.map { it.title })
+            gameStore.add(g.title, g.blurb, g.html)
+            _gameStatus.value = "New game: ${g.title}"
+            true
+        } catch (e: Exception) {
+            _gameStatus.value = "Couldn't make a game: " + friendly(e)
+            false
         }
     }
 
     init {
+        // A new game at 8, 12 and 4 on weekdays. The first game is made whenever there is a key.
         viewModelScope.launch {
-            delay(10_000L)
+            var lastTry = 0L
             while (true) {
-                checkForGames(announce = false)
-                delay(20 * 60_000L)
+                delay(60_000L)
+                if (prefs.apiKey.isBlank()) continue
+                if (System.currentTimeMillis() - lastTry < 10 * 60_000L) continue
+                val t = LocalDateTime.now()
+                val empty = gameStore.games.value.isEmpty()
+                val slotHour = listOf(8, 12, 16).lastOrNull { it <= t.hour }
+                val slot = if (isActiveHours(t) && slotHour != null) "${t.toLocalDate()}-$slotHour" else null
+                val due = (slot != null && prefs.lastGameSlot != slot) || empty
+                if (!due) continue
+                lastTry = System.currentTimeMillis()
+                if (generateGame(manual = false) && slot != null) prefs.lastGameSlot = slot
             }
         }
     }
