@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,9 +127,16 @@ fun DeskGlassApp(vm: MainViewModel) {
             if (narration != null) {
                 Text(
                     narration!!,
-                    color = Glass.InkFaint,
+                    color = Color(0xFFF2F4F8),
                     fontSize = 15.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 44.dp),
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 36.dp, bottom = 100.dp)
+                        .widthIn(max = 380.dp)
+                        .background(Color(0xCC05070D), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
             GlassButton(
