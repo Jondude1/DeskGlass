@@ -20,6 +20,7 @@ data class Note(
     val title: String = "",
     val body: String = "",
     val strokes: List<InkStroke> = emptyList(),
+    val tags: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
     val isEmpty: Boolean get() = title.isBlank() && body.isBlank() && strokes.isEmpty()
@@ -80,6 +81,7 @@ class NoteStore(context: Context) {
             title = o.optString("title", ""),
             body = o.optString("body", ""),
             strokes = strokes,
+            tags = (o.optJSONArray("tags") ?: JSONArray()).let { t -> (0 until t.length()).map { t.getString(it) } },
             updatedAt = o.optLong("updatedAt", 0L),
         )
     }
@@ -103,6 +105,7 @@ class NoteStore(context: Context) {
                     .put("body", n.body)
                     .put("updatedAt", n.updatedAt)
                     .put("strokes", strokes)
+                    .put("tags", JSONArray(n.tags))
             )
         }
         val tmp = File(file.parentFile, "notes.json.tmp")

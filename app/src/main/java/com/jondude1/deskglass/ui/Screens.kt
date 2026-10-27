@@ -79,6 +79,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var keyDraft by remember { mutableStateOf("") }
     var nameDraft by remember { mutableStateOf(vm.prefs.userName) }
     var modelDraft by remember { mutableStateOf(vm.prefs.chatModel) }
+    var fastDraft by remember { mutableStateOf(vm.prefs.fastModel) }
     var aiStatus by remember { mutableStateOf<String?>(null) }
     var confirmMemory by remember { mutableStateOf(false) }
 
@@ -157,11 +158,21 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         colors = glassFieldColors(),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Text("Quick model (quick-add, tidy-ups, clock line)", color = Glass.InkDim, fontSize = 18.sp)
+                    OutlinedTextField(
+                        value = fastDraft,
+                        onValueChange = { fastDraft = it },
+                        singleLine = true,
+                        colors = glassFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         GlassButton("Save name and model", {
                             vm.prefs.userName = nameDraft
                             vm.prefs.chatModel = modelDraft
                             modelDraft = vm.prefs.chatModel
+                            vm.prefs.fastModel = fastDraft
+                            fastDraft = vm.prefs.fastModel
                             aiStatus = "Saved."
                         })
                         aiStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp) }

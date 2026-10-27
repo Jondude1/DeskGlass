@@ -32,6 +32,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,7 +93,9 @@ fun ChecklistsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 } else {
                     key(selected.id) {
                         ListDetail(
+                            vm = vm,
                             list = selected,
+                            onAddMany = { items -> items.forEach { vm.addChecklistItem(selected.id, it) } },
                             onRename = { dialog = NameDialog.Rename },
                             onAdd = { vm.addChecklistItem(selected.id, it) },
                             onToggle = { vm.toggleChecklistItem(selected.id, it) },
@@ -160,6 +164,8 @@ private fun ListRow(list: Checklist, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun ListDetail(
+    vm: MainViewModel,
+    onAddMany: (List<String>) -> Unit,
     list: Checklist,
     onRename: () -> Unit,
     onAdd: (String) -> Unit,
@@ -170,6 +176,8 @@ private fun ListDetail(
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showDump by remember { mutableStateOf(false) }
+    val hasKey by vm.hasApiKey.collectAsState()
     val done = list.items.count { it.done }
 
     fun submit() {
@@ -261,12 +269,24 @@ private fun ListDetail(
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (hasKey) GlassButton("Brain dump", { showDump = true })
             if (done > 0) GlassButton("Clear done", onClearDone)
             GlassButton(
                 if (confirmDelete) "Tap again to delete" else "Delete list",
                 { if (confirmDelete) onDeleteList() else confirmDelete = true },
             )
         }
+    }
+
+    if (showDump) {
+        BrainDumpDialog(
+            vm = vm,
+            onItems = {
+                onAddMany(it)
+                showDump = false
+            },
+            onDismiss = { showDump = false },
+        )
     }
 }
 
@@ -314,6 +334,66 @@ private fun NameDialogView(title: String, initial: String, onConfirm: (String) -
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
                 GlassButton("Cancel", onDismiss)
                 GlassButton("Save", { if (name.isNotBlank()) onConfirm(name.trim()) }, filled = true)
+            }
+        }
+    }
+}
+
+/** Paste a messy list or describe a project; Claude turns it into clean checklist items. */
+@Composable
+private fun BrainDumpDialog(vm: MainViewModel, onItems: (List<String>) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier
+                .fillMaxWidth(0.6f)
+                .widthIn(max = 700.dp)
+                .clip(RoundedCornerShape(32.dp))
+                .background(Color(0xFF151A33))
+                .padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Brain dump", color = Glass.Ink, fontSize = 28.sp, fontWeight = FontWeight.Light)
+            Text(
+                "Paste a messy list or describe a project. I'll turn it into clear steps.",
+                color = Glass.InkDim,
+                fontSize = 18.sp,
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                minLines = 5,
+                maxLines = 9,
+                colors = editorFieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            error?.let { Text(it, color = Color(0xFFFFB4B4), fontSize = 17.sp) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
+                GlassButton("Cancel", onDismiss)
+                GlassButton(
+                    if (busy) "Working…" else "Break it down",
+                    {
+                        if (text.isNotBlank() && !busy) {
+                            scope.launch {
+                                busy = true
+                                error = null
+                                try {
+                                    val items = vm.ai.breakDown(text)
+                                    if (items.isEmpty()) error = "I couldn't find any steps in that." else onItems(items)
+                                } catch (e: Exception) {
+                                    error = vm.errorMessage(e)
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    },
+                    filled = true,
+                )
             }
         }
     }

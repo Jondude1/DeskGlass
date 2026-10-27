@@ -53,7 +53,7 @@ import kotlin.math.sin
 // ---------------------------------------------------------------- Clock
 
 @Composable
-fun ClockPanel(now: State<LocalDateTime>) {
+fun ClockPanel(now: State<LocalDateTime>, idleLine: String?) {
     val t = now.value
     val hour12 = if (t.hour % 12 == 0) 12 else t.hour % 12
     val minute = t.minute.toString().padStart(2, '0')
@@ -86,6 +86,16 @@ fun ClockPanel(now: State<LocalDateTime>) {
             fontSize = 30.sp,
             fontWeight = FontWeight.Light,
         )
+        if (!idleLine.isNullOrBlank()) {
+            Text(
+                text = idleLine,
+                color = Glass.InkFaint,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Light,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 26.dp).widthIn(max = 900.dp),
+            )
+        }
     }
 }
 

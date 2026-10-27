@@ -6,6 +6,7 @@ import org.json.JSONObject
 data class Place(val label: String, val lat: Double, val lon: Double)
 
 const val DEFAULT_CHAT_MODEL = "claude-sonnet-5-5"
+const val DEFAULT_FAST_MODEL = "claude-haiku-5-5"
 
 class Prefs(context: Context) {
     private val sp = context.applicationContext.getSharedPreferences("deskglass", Context.MODE_PRIVATE)
@@ -25,6 +26,25 @@ class Prefs(context: Context) {
     var chatModel: String
         get() = sp.getString("chatModel", DEFAULT_CHAT_MODEL) ?: DEFAULT_CHAT_MODEL
         set(v) = sp.edit().putString("chatModel", v.trim().ifEmpty { DEFAULT_CHAT_MODEL }).apply()
+
+    var fastModel: String
+        get() = sp.getString("fastModel", DEFAULT_FAST_MODEL) ?: DEFAULT_FAST_MODEL
+        set(v) = sp.edit().putString("fastModel", v.trim().ifEmpty { DEFAULT_FAST_MODEL }).apply()
+
+    val idleLine: String get() = sp.getString("idleLine", "") ?: ""
+    val idleLineAt: Long get() = sp.getLong("idleLineAt", 0L)
+
+    fun recentIdleLines(): List<String> =
+        (sp.getString("recentIdle", "") ?: "").split("\n").filter { it.isNotBlank() }
+
+    fun pushIdleLine(line: String) {
+        val all = (recentIdleLines() + line).takeLast(8)
+        sp.edit()
+            .putString("recentIdle", all.joinToString("\n"))
+            .putString("idleLine", line)
+            .putLong("idleLineAt", System.currentTimeMillis())
+            .apply()
+    }
 
     var place: Place?
         get() {

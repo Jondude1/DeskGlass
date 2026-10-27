@@ -30,6 +30,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -150,6 +155,10 @@ fun CalendarScreen(vm: MainViewModel, now: State<LocalDateTime>, onBack: () -> U
 
     Column(Modifier.fillMaxSize()) {
         BackBar("Calendar", onBack)
+        QuickAdd(vm) { date ->
+            selected = date
+            month = YearMonth.from(date)
+        }
         Row(
             Modifier.fillMaxSize().padding(horizontal = 32.dp).padding(bottom = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(28.dp),
@@ -407,3 +416,54 @@ internal fun editorFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedLabelColor = Glass.InkDim,
     unfocusedLabelColor = Glass.InkFaint,
 )
+
+/** Type a sentence like "dentist Thursday at 2pm" and Claude files it as an event. */
+@Composable
+private fun QuickAdd(vm: MainViewModel, onAdded: (LocalDate) -> Unit) {
+    val hasKey by vm.hasApiKey.collectAsState()
+    if (!hasKey) return
+    var text by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun go() {
+        val t = text.trim()
+        if (t.isEmpty() || busy) return
+        scope.launch {
+            busy = true
+            status = null
+            try {
+                val q = vm.ai.quickEvent(t)
+                vm.saveEvent(Event(UUID.randomUUID().toString(), q.title, q.date, q.start, q.end, q.note))
+                text = ""
+                val whenText = q.date.format(DateTimeFormatter.ofPattern("EEE, MMM d")) +
+                    (q.start?.let { " at " + formatTime(it) } ?: "")
+                status = "Added: ${q.title}, $whenText"
+                onAdded(q.date)
+            } catch (e: Exception) {
+                status = vm.errorMessage(e)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    Column(Modifier.padding(horizontal = 32.dp).padding(bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                placeholder = { Text("Quick add: dentist Thursday at 2pm", color = Glass.InkFaint) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { go() }),
+                colors = editorFieldColors(),
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.weight(1f),
+            )
+            GlassButton(if (busy) "Adding…" else "Add", { go() }, filled = true)
+        }
+        status?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp, modifier = Modifier.padding(start = 12.dp)) }
+    }
+}

@@ -3,6 +3,7 @@ package com.jondude1.deskglass
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jondude1.deskglass.ai.AiTasks
 import com.jondude1.deskglass.ai.ApiException
 import com.jondude1.deskglass.ai.ChatEngine
 import com.jondude1.deskglass.ai.ChatMessage
@@ -40,6 +41,7 @@ sealed interface UpdateUi {
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
+    val ai = AiTasks(prefs)
     private val eventStore = EventStore(app)
     val events: StateFlow<List<Event>> = eventStore.events
 
@@ -106,9 +108,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearMemory() = memoryStore.clear()
 
+    fun errorMessage(e: Exception): String = friendly(e)
+
+    /** Puts items on the named checklist, creating it if needed. */
+    fun addToChecklist(listName: String, items: List<String>) {
+        val existing = checklistStore.lists.value.firstOrNull { it.name.equals(listName, ignoreCase = true) }
+        val id = existing?.id ?: checklistStore.addList(listName)
+        items.forEach { checklistStore.addItem(id, it) }
+    }
+
+    // ---- The line under the clock ----
+
+    private val _idleLine = MutableStateFlow(prefs.idleLine.ifBlank { null })
+    val idleLine: StateFlow<String?> = _idleLine.asStateFlow()
+
+    private suspend fun refreshIdleLine() {
+        if (prefs.apiKey.isBlank()) return
+        if (System.currentTimeMillis() - prefs.idleLineAt < 2 * 60 * 60_000L) return
+        try {
+            val line = ai.idleLine(prefs.recentIdleLines())
+            if (line.isNotBlank()) {
+                prefs.pushIdleLine(line)
+                _idleLine.value = line
+            }
+        } catch (e: Exception) {
+            // Quiet on purpose: the clock simply keeps its last line.
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            while (true) {
+                refreshIdleLine()
+                delay(15 * 60_000L)
+            }
+        }
+    }
+
     fun saveApiKey(key: String) {
         prefs.apiKey = key
         _hasApiKey.value = prefs.apiKey.isNotBlank()
+        viewModelScope.launch { refreshIdleLine() }
     }
 
     fun apiKeyHint(): String {
