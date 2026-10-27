@@ -28,10 +28,19 @@ class GameGenerator(private val prefs: Prefs) {
                         .put("content", "Write today's game.$avoid")
                 )
             )
-        val raw = ClaudeApi.stream(key, body)
-        val html = extractHtml(raw)
-        require(html.contains("DeskGlass") && html.contains("DG_MODE") && html.contains("</html>", ignoreCase = true)) {
-            "The game came back incomplete. It will try again later."
+        val res = ClaudeApi.stream(key, body)
+        val raw = res.text
+        val html = try {
+            extractHtml(raw)
+        } catch (e: IllegalArgumentException) {
+            val head = raw.trim().replace("\n", " ").take(300)
+            throw IllegalArgumentException(
+                "No game in Claude's answer (${raw.length} characters, stop reason: ${res.stopReason.ifEmpty { "none" }}). " +
+                    "It began: \"$head\""
+            )
+        }
+        require(html.contains("DG_MODE") && html.contains("</script>", ignoreCase = true)) {
+            "The game came back incomplete (stop reason: ${res.stopReason.ifEmpty { "none" }}, ${html.length} characters)."
         }
         val title = Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)?.trim()
             ?.ifEmpty { null } ?: "Untitled game"
@@ -44,8 +53,12 @@ class GameGenerator(private val prefs: Prefs) {
         val fence = Regex("```(?:html)?\\s*\\n(.*?)```", RegexOption.DOT_MATCHES_ALL).find(raw)
         val text = fence?.groupValues?.get(1) ?: raw
         val start = text.indexOf("<!DOCTYPE", ignoreCase = true).let { if (it >= 0) it else text.indexOf("<html", ignoreCase = true) }
-        require(start >= 0) { "Claude didn't return a game. It will try again later." }
-        return text.substring(start).trim()
+        if (start >= 0) return text.substring(start).trim()
+        // Some answers skip the doctype: accept anything that clearly is a page.
+        val loose = listOf("<head", "<canvas", "<script", "<body").map { text.indexOf(it, ignoreCase = true) }
+            .filter { it >= 0 }.minOrNull()
+        require(loose != null) { "no html" }
+        return "<!DOCTYPE html><html>" + text.substring(loose).trim() + if (text.contains("</html>", true)) "" else "</html>"
     }
 
     companion object {

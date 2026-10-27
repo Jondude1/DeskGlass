@@ -4,6 +4,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 
+class StreamResult(val text: String, val stopReason: String)
+
 class ApiException(val code: Int, message: String, val raw: String = "") : Exception(message)
 
 /** Plain HTTPS calls to the Anthropic Messages API. Blocking: call them off the main thread. */
@@ -48,13 +50,14 @@ object ClaudeApi {
      * Streams a long answer and returns all the text. Used for things that take minutes, like
      * writing a whole game, where a single silent request could be cut off by the network.
      */
-    fun stream(apiKey: String, body: JSONObject): String {
+    fun stream(apiKey: String, body: JSONObject): StreamResult {
         body.put("stream", true)
         val c = open(apiKey, body, 300_000)
         try {
             val code = c.responseCode
             if (code !in 200..299) fail(c, code)
             val sb = StringBuilder()
+            var stop = ""
             c.inputStream.bufferedReader().use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -71,11 +74,12 @@ object ClaudeApi {
                             500,
                             ev.optJSONObject("error")?.optString("message") ?: "The stream was interrupted."
                         )
-                        "message_stop" -> return sb.toString()
+                        "message_delta" -> stop = ev.optJSONObject("delta")?.optString("stop_reason") ?: stop
+                        "message_stop" -> return StreamResult(sb.toString(), stop)
                     }
                 }
             }
-            return sb.toString()
+            return StreamResult(sb.toString(), stop)
         } finally {
             c.disconnect()
         }
