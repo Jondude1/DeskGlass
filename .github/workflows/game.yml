@@ -1,0 +1,86 @@
+name: Make a game
+
+on:
+  schedule:
+    # 8, 12 and 4 New York time, Monday to Friday. Two sets cover daylight saving;
+    # the check below lets only the right one through.
+    - cron: '5 12,16,20 * * 1-5'
+    - cron: '5 13,17,21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: 'Use the built-in sample game instead of asking Claude (tests the pipeline)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  game:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Only at 8, 12 or 4 New York time
+        id: gate
+        run: |
+          H=$(TZ=America/New_York date +%H)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$H" != "08" ] && [ "$H" != "12" ] && [ "$H" != "16" ]; then
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Godot 4.3 and web export templates
+        if: steps.gate.outputs.go == 'yes'
+        run: |
+          B=https://github.com/godotengine/godot-builds/releases/download/4.3-stable
+          curl -fsSL -o godot.zip "$B/Godot_v4.3-stable_linux.x86_64.zip"
+          curl -fsSL -o templates.tpz "$B/Godot_v4.3-stable_export_templates.tpz"
+          unzip -q godot.zip
+          sudo mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q templates.tpz
+          mv templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          godot --version
+
+      - name: Titles of earlier games
+        if: steps.gate.outputs.go == 'yes'
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          T=$(gh api "repos/${{ github.repository }}/releases?per_page=30" -q '[.[] | select(.tag_name | startswith("game-")) | .name] | join("; ")' || true)
+          echo "titles=$T" >> "$GITHUB_OUTPUT"
+
+      - name: Write and build the game
+        if: steps.gate.outputs.go == 'yes'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GAME_MODEL: ${{ vars.GAME_MODEL }}
+          SAMPLE: ${{ inputs.sample && '1' || '0' }}
+          PREVIOUS_TITLES: ${{ steps.prev.outputs.titles }}
+        run: |
+          if [ "$SAMPLE" != "1" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Add your Anthropic API key as a repository secret named ANTHROPIC_API_KEY (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          python3 tools/make_game.py 2>&1 | tee game.log
+          test "${PIPESTATUS[0]}" = "0"
+
+      - name: Report problems
+        if: failure() && steps.gate.outputs.go == 'yes'
+        run: |
+          grep -E "problems:|Could not produce|API error|Sample failed|SCRIPT ERROR|Parse Error|^[^ ]*\.gd:[0-9]+" -A6 game.log | head -40 | while IFS= read -r l; do echo "::error::${l}"; done || true
+
+      - name: Publish the game
+        if: steps.gate.outputs.go == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(cat out/tag.txt)
+          ASSETS=$(python3 -c "import json;m=json.load(open('out/meta.json'));print(*(['out/meta.json']+['out/'+f for f in m['files']]))")
+          gh release create "$TAG" $ASSETS --repo "${{ github.repository }}" --prerelease --latest=false \
+            --title "$(cat out/title.txt)" --notes "$(cat out/blurb.txt)"

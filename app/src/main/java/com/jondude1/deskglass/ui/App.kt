@@ -96,16 +96,16 @@ fun DeskGlassApp(vm: MainViewModel) {
         // The self-playing game, behind the idle home screen only.
         val games by vm.games.collectAsState()
         val narration by vm.narration.collectAsState()
-        val wallpaperId = games.firstOrNull()?.id
-        val wallpaperHtml = remember(wallpaperId) { wallpaperId?.let { vm.gameHtml(it) } }
-        val showWallpaper = screen == Screen.Home && active && wallpaperHtml != null
+        val wallpaper = games.firstOrNull()
+        val wallpaperId = wallpaper?.id
+        val showWallpaper = screen == Screen.Home && active && wallpaper != null
         AnimatedVisibility(
             visible = showWallpaper,
             enter = fadeIn(tween(2000)),
             exit = fadeOut(tween(400)),
         ) {
             Box(Modifier.fillMaxSize()) {
-                GameView(wallpaperHtml ?: "", "bot", interactive = false, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
+                if (wallpaper != null) GameView(vm.gameStore, wallpaper, "bot", interactive = false, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().background(Color(0xAA05070D)))
             }
         }

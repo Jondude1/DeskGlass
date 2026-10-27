@@ -2,10 +2,11 @@ package com.jondude1.deskglass.data
 
 import android.content.Context
 import java.io.File
-import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -14,46 +15,103 @@ data class GameInfo(
     val title: String,
     val blurb: String,
     val createdAt: Long,
+    val engineFile: String,
 )
 
-/** Every game Claude has ever written. They are never deleted, so old ones can be replayed. */
+/**
+ * Games are written by Claude and built with Godot on GitHub, then published as releases of the
+ * DeskGlass repo (marked as pre-releases so the app updater ignores them). This keeps every game
+ * it has downloaded, so old ones can be replayed.
+ */
 class GameStore(context: Context) {
-    private val dir = File(context.filesDir, "games").apply { mkdirs() }
-    private val index = File(dir, "index.json")
+    private val root = File(context.filesDir, "godot-games").apply { mkdirs() }
+    private val engineDir = File(root, "_engine").apply { mkdirs() }
 
     private val _games = MutableStateFlow(load())
     val games: StateFlow<List<GameInfo>> = _games.asStateFlow()
 
-    private fun load(): List<GameInfo> = try {
-        if (!index.exists()) emptyList() else {
-            val a = JSONArray(index.readText())
-            (0 until a.length()).map {
-                val o = a.getJSONObject(it)
-                GameInfo(o.getString("id"), o.getString("title"), o.optString("blurb"), o.getLong("createdAt"))
-            }.filter { File(dir, "${it.id}.html").exists() }
+    private fun load(): List<GameInfo> {
+        val dirs = root.listFiles { f -> f.isDirectory && f.name.startsWith("game-") } ?: return emptyList()
+        return dirs.mapNotNull { d ->
+            try {
+                val m = JSONObject(File(d, "meta.json").readText())
+                if (!File(d, "index.pck").exists()) return@mapNotNull null
+                GameInfo(
+                    id = d.name,
+                    title = m.optString("title", "Untitled game"),
+                    blurb = m.optString("blurb"),
+                    createdAt = m.optLong("made") * 1000L,
+                    engineFile = m.optString("engineFile", "engine.wasm"),
+                )
+            } catch (e: Exception) {
+                null
+            }
+        }.sortedByDescending { it.createdAt }
+    }
+
+    /** The file a game page asks for, or null. The engine is shared between all games. */
+    fun resolve(game: GameInfo, path: String): File? {
+        if (path.contains("..") || path.startsWith("/")) return null
+        val f = if (path == "index.wasm") File(engineDir, game.engineFile) else File(root, "${game.id}/$path")
+        return f.takeIf { it.isFile }
+    }
+
+    /** Downloads games published since the last check. Returns how many are new. */
+    suspend fun sync(): Int = withContext(Dispatchers.IO) {
+        val body = Http.get(RELEASES, mapOf("Accept" to "application/vnd.github+json"))
+        val releases = JSONArray(body)
+        var added = 0
+        for (i in 0 until releases.length()) {
+            val r = releases.getJSONObject(i)
+            val tag = r.getString("tag_name")
+            if (!tag.startsWith("game-")) continue
+            if (File(root, "$tag/meta.json").exists()) continue
+
+            val assets = HashMap<String, String>()
+            val arr = r.optJSONArray("assets") ?: continue
+            for (k in 0 until arr.length()) {
+                val a = arr.getJSONObject(k)
+                assets[a.getString("name")] = a.getString("browser_download_url")
+            }
+            val metaText = Http.get(assets["meta.json"] ?: continue)
+            val meta = JSONObject(metaText)
+            val files = meta.getJSONArray("files")
+            val engineName = meta.optString("engineFile", "engine.wasm")
+
+            val tmp = File(root, ".tmp-$tag")
+            tmp.deleteRecursively()
+            tmp.mkdirs()
+            for (k in 0 until files.length()) {
+                val name = files.getString(k)
+                if (name.contains("/") || name.contains("..")) continue
+                val url = assets[name] ?: error("Missing $name in $tag")
+                if (name == engineName) {
+                    val dest = File(engineDir, engineName)
+                    if (!dest.exists()) download(url, dest)
+                } else {
+                    download(url, File(tmp, name))
+                }
+            }
+            File(tmp, "meta.json").writeText(metaText)
+            if (!tmp.renameTo(File(root, tag))) error("Couldn't save $tag")
+            added++
         }
-    } catch (e: Exception) {
-        emptyList()
+        if (added > 0) _games.value = load()
+        added
     }
 
-    private fun saveIndex(list: List<GameInfo>) {
-        val a = JSONArray()
-        list.forEach {
-            a.put(JSONObject().put("id", it.id).put("title", it.title).put("blurb", it.blurb).put("createdAt", it.createdAt))
+    private fun download(url: String, dest: File) {
+        val part = File(dest.parentFile, dest.name + ".part")
+        val c = Http.open(url)
+        try {
+            c.inputStream.use { input -> part.outputStream().use { input.copyTo(it) } }
+        } finally {
+            c.disconnect()
         }
-        val tmp = File(dir, "index.json.tmp")
-        tmp.writeText(a.toString())
-        tmp.renameTo(index)
+        if (!part.renameTo(dest)) error("Couldn't save ${dest.name}")
     }
 
-    fun add(title: String, blurb: String, html: String): GameInfo {
-        val info = GameInfo(UUID.randomUUID().toString().take(8), title, blurb, System.currentTimeMillis())
-        File(dir, "${info.id}.html").writeText(html)
-        val list = listOf(info) + _games.value
-        saveIndex(list)
-        _games.value = list
-        return info
+    companion object {
+        private const val RELEASES = "https://api.github.com/repos/Jondude1/DeskGlass/releases?per_page=12"
     }
-
-    fun html(id: String): String? = File(dir, "$id.html").takeIf { it.exists() }?.readText()
 }

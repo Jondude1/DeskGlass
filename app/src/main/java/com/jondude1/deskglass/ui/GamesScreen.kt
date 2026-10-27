@@ -32,7 +32,7 @@ fun GamesScreen(vm: MainViewModel, onBack: () -> Unit, onPlay: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         BackBar("Games", onBack, trailing = {
-            GlassButton("Make a game now", { vm.makeGameNow() }, filled = true)
+            GlassButton("Check for new games", { vm.checkForGames(true) }, filled = true)
         })
         if (status != null) {
             Text(
@@ -45,7 +45,7 @@ fun GamesScreen(vm: MainViewModel, onBack: () -> Unit, onPlay: () -> Unit) {
         if (games.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No games yet. Claude writes a new one at 8, 12 and 4 on weekdays,\nor tap “Make a game now”.",
+                    "No games yet. Claude writes a new one at 8, 12 and 4 on weekdays\nand it shows up here. Tap “Check for new games”.",
                     color = Glass.InkDim,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Light,
@@ -84,8 +84,9 @@ fun PlayScreen(vm: MainViewModel, onBack: () -> Unit) {
     val req by vm.play.collectAsState()
     val narration by vm.narration.collectAsState()
     val r = req
-    val html = r?.let { vm.gameHtml(it.gameId) }
-    if (r == null || html == null) {
+    val games by vm.games.collectAsState()
+    val game = r?.let { req -> games.firstOrNull { it.id == req.gameId } }
+    if (r == null || game == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             GlassButton("Back", onBack)
         }
@@ -93,7 +94,7 @@ fun PlayScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
     Box(Modifier.fillMaxSize()) {
         key(r.gameId, r.mode) {
-            GameView(html, r.mode, interactive = true, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
+            GameView(vm.gameStore, game, r.mode, interactive = true, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
         }
         Row(
             Modifier.align(Alignment.TopStart).padding(16.dp),
