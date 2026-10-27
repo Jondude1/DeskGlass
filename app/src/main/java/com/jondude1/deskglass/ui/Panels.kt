@@ -53,7 +53,7 @@ import kotlin.math.sin
 // ---------------------------------------------------------------- Clock
 
 @Composable
-fun ClockPanel(now: State<LocalDateTime>, idleLine: String?) {
+fun ClockPanel(now: State<LocalDateTime>, idleLine: String?, events: List<Event> = emptyList(), todos: Int = 0) {
     val t = now.value
     val hour12 = if (t.hour % 12 == 0) 12 else t.hour % 12
     val minute = t.minute.toString().padStart(2, '0')
@@ -94,6 +94,35 @@ fun ClockPanel(now: State<LocalDateTime>, idleLine: String?) {
                 fontWeight = FontWeight.Light,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 26.dp).widthIn(max = 900.dp),
+            )
+        }
+        val today = t.toLocalDate()
+        val clock = t.toLocalTime()
+        val next = events.firstOrNull { it.date > today || (it.date == today && (it.start == null || it.start >= clock)) }
+        val bits = ArrayList<String>()
+        if (next != null) {
+            val whenText = when {
+                next.date == today -> "Today"
+                next.date == today.plusDays(1) -> "Tomorrow"
+                else -> next.date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+            }
+            val timeText = next.start?.format(DateTimeFormatter.ofPattern("h:mm a"))
+            bits.add("Next: $whenText${if (timeText != null) " $timeText" else ""} · ${next.title}")
+        }
+        if (todos > 0) bits.add("$todos to-do${if (todos == 1) "" else "s"} open")
+        if (bits.isNotEmpty()) {
+            Text(
+                text = bits.joinToString("     "),
+                color = Glass.InkDim,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Light,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(top = 22.dp)
+                    .widthIn(max = 900.dp)
+                    .background(Color.White.copy(alpha = 0.07f), androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
             )
         }
     }

@@ -23,6 +23,8 @@ import com.jondude1.deskglass.data.NoteStore
 import com.jondude1.deskglass.data.Prefs
 import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
+import com.jondude1.deskglass.data.WeatherKind
+import com.jondude1.deskglass.data.weatherKind
 import com.jondude1.deskglass.update.UpdateInfo
 import com.jondude1.deskglass.ui.isActiveHours
 import com.jondude1.deskglass.ai.ClaudeApi
@@ -329,6 +331,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 delay(30 * 60_000L)
                 checkForUpdate(force = false)
+            }
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            weather.collect { st ->
+                val kind = (st as? WeatherState.Ready)?.now?.let { weatherKind(it.code, it.isDay) }
+                civ.outsideRain = kind == WeatherKind.Rain || kind == WeatherKind.Storm
+                civ.outsideSnow = kind == WeatherKind.Snow
             }
         }
     }

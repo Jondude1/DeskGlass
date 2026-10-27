@@ -80,7 +80,13 @@ fun CivCanvas(sim: CivSim, modifier: Modifier = Modifier, cover: Boolean = true,
         var lastDraw = 0L
         while (true) {
             val n = androidx.compose.runtime.withFrameNanos { it }
-            if (last != 0L) sim.tick(((n - last) / 1_000_000_000.0).toFloat())
+            if (last != 0L) {
+                try {
+                    sim.tick(((n - last) / 1_000_000_000.0).toFloat())
+                } catch (e: Exception) {
+                    sim.guard(e)
+                }
+            }
             last = n
             if (n - lastDraw > 45_000_000L) {
                 lastDraw = n
@@ -316,6 +322,36 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // seasons follow the real calendar: blossoms, warm light, falling leaves, snow
+    val season = when (java.time.LocalDate.now().monthValue) { 12, 1, 2 -> 3; 3, 4, 5 -> 0; 6, 7, 8 -> 1; else -> 2 }
+    val snowing = sim.outsideSnow || season == 3
+    drawRect(
+        when (season) {
+            0 -> Color(0xFFFFB6D5)
+            1 -> Color(0xFFFFE9A0)
+            2 -> Color(0xFFFF9A3C)
+            else -> Color(0xFFBFD8FF)
+        }.copy(alpha = 0.06f)
+    )
+    val specks = when {
+        snowing -> 70
+        season == 2 -> 24
+        season == 0 -> 18
+        else -> 0
+    }
+    for (i in 0 until specks) {
+        val h1 = (cellHash(i, 21) % 1000) / 1000f
+        val h2 = (cellHash(i, 33) % 1000) / 1000f
+        val py = (h1 + t * (0.03f + h2 * 0.05f)) % 1f
+        val px = (h2 + kotlin.math.sin(t * 0.8f + i) * 0.03f + (if (season == 2) py * 0.15f else 0f) + 1f) % 1f
+        val c = when {
+            snowing -> Color(0xFFFFFFFF)
+            season == 2 -> if (i % 2 == 0) Color(0xFFE0752B) else Color(0xFFC9A227)
+            else -> Color(0xFFFFB6D5)
+        }
+        drawRect(c.copy(alpha = 0.85f), Offset(px * size.width, py * size.height), Size(ps * 1.6f, ps * 1.6f))
+    }
+
     // rain
     if (sim.raining()) {
         drawRect(Color(0xFF203050).copy(alpha = 0.16f))
@@ -464,6 +500,12 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                                 "feeling ${sim.mood(v)} · hunger ${v.hunger.toInt()} · energy ${v.energy.toInt()}",
                                 color = Glass.InkFaint, fontSize = 12.sp,
                             )
+                        }
+                    }
+                    if (sim.chronicle.isNotEmpty()) {
+                        Text("CHRONICLE", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))
+                        for (line in sim.chronicle.takeLast(6).reversed()) {
+                            Text(line, color = Glass.InkDim, fontSize = 13.sp)
                         }
                     }
                     Text("NEWS", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))

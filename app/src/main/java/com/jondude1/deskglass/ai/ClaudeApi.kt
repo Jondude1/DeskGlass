@@ -35,7 +35,23 @@ object ClaudeApi {
         throw ApiException(code, msg, text.take(1500))
     }
 
+    /** Retries a couple of times when the service is busy or the network blips. */
     fun call(apiKey: String, body: JSONObject): JSONObject {
+        var attempt = 0
+        while (true) {
+            try {
+                return callOnce(apiKey, body)
+            } catch (e: ApiException) {
+                if (attempt >= 2 || (e.code != 429 && e.code < 500)) throw e
+            } catch (e: java.io.IOException) {
+                if (attempt >= 2) throw e
+            }
+            Thread.sleep(if (attempt == 0) 1_500L else 4_000L)
+            attempt++
+        }
+    }
+
+    private fun callOnce(apiKey: String, body: JSONObject): JSONObject {
         val c = open(apiKey, body, 120_000)
         try {
             val code = c.responseCode

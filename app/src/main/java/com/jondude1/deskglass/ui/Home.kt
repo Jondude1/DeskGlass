@@ -58,6 +58,8 @@ fun HomeScreen(
 ) {
     val weather by vm.weather.collectAsState()
     val events by vm.events.collectAsState()
+    val lists by vm.checklists.collectAsState()
+    val todos = lists.sumOf { l -> l.items.count { !it.done } }
     val idleLine by vm.idleLine.collectAsState()
     val panels = remember { Panel.values().toList() }
     var index by remember { mutableIntStateOf(0) }
@@ -102,7 +104,7 @@ fun HomeScreen(
                 Crossfade(targetState = index, animationSpec = tween(1400), label = "panels") { i ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         when (panels[i]) {
-                            Panel.Clock -> ClockPanel(now, idleLine)
+                            Panel.Clock -> ClockPanel(now, idleLine, events, todos)
                             Panel.Weather -> WeatherPanel(weather)
                             Panel.Calendar -> CalendarPanel(now, events)
                         }

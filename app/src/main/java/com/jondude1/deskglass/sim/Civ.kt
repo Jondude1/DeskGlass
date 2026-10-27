@@ -173,6 +173,9 @@ class CivSim(
     var totalSmelted = 0
     var explored = 0
     var age = 0
+    var outsideRain = false
+    var outsideSnow = false
+    val chronicle = ArrayList<String>()
     var time = DAY_LEN * 0.08
     var brain = "starting…"
         private set
@@ -248,6 +251,7 @@ class CivSim(
         totalSmelted = 0
         explored = 0
         age = 0
+        chronicle.clear()
         time = DAY_LEN * 0.08
         lastBirth = time
         val e = noise(rnd, 4)
@@ -280,6 +284,7 @@ class CivSim(
         addBuilding("campfire", cx, cy)
         for (k in 0 until 4) spawnVillager()
         addLog("A small band of villagers settles by a fire.")
+        mark("A small band of villagers settled by a fire.")
     }
 
     private fun ensure(type: Int, amount: Int, wanted: Int) {
@@ -821,6 +826,21 @@ class CivSim(
 
     // ---- ages and generations ----
 
+    /** A short history of the big moments, kept in the save file. */
+    fun mark(text: String) {
+        chronicle.add("Day ${day()}: $text")
+        while (chronicle.size > 40) chronicle.removeAt(0)
+    }
+
+    /** Called by the screen when a frame of the sim throws, so one bug never takes the app down. */
+    fun guard(e: Exception) {
+        val now = System.currentTimeMillis()
+        if (now - lastErrorLog > 60_000L) {
+            lastErrorLog = now
+            onError("Village hiccup: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
     fun isChild(v: Villager) = v.job == "Child"
     fun ageYears(v: Villager): Int = max(0.0, (time - v.born) / YEAR).toInt()
     fun ageName(): String = AGE_NAMES[age.coerceIn(0, AGE_NAMES.size - 1)]
@@ -901,6 +921,7 @@ class CivSim(
                 else -> "Stronger metal comes from the forge. The Iron Age begins!"
             }
         )
+        mark(AGE_NAMES[age.coerceIn(0, AGE_NAMES.size - 1)] + " begins.")
         retrain()
         for (v in villagers) v.happiness = min(100f, v.happiness + 15f)
         festivalUntil = time + 40.0
@@ -928,6 +949,7 @@ class CivSim(
         v.happiness = min(100f, v.happiness + 15f)
         v.remember("grew up and became a ${j.lowercase()}")
         event("${v.name} has grown up and becomes a ${j.lowercase()}.")
+        mark("${v.name} grew up and became a ${j.lowercase()}.")
     }
 
     private fun techNote(): String = when (age) {
@@ -949,7 +971,7 @@ class CivSim(
     // ---- brains ----
 
     private fun alert() = time < alertUntil
-    fun raining() = time < rainUntil
+    fun raining() = time < rainUntil || outsideRain
     private fun festival() = time < festivalUntil
 
     fun mood(v: Villager): String = when {
@@ -1349,6 +1371,7 @@ class CivSim(
                 a.remember("welcomed baby ${n.name}")
                 b.remember("welcomed baby ${n.name}")
                 addLog("${a.name} and ${b.name} welcome a baby, ${n.name}!")
+                mark("${n.name} was born to ${a.name} and ${b.name}.")
                 narrate("A baby is born: ${n.name}")
             }
         }
@@ -1376,6 +1399,7 @@ class CivSim(
             villagers.remove(v)
             for (o in villagers) o.happiness = max(0f, o.happiness - 8f)
             event("${v.name} the ${v.job.lowercase()} passed away peacefully at ${ageYears(v)}.")
+            mark("${v.name} the ${v.job.lowercase()} passed away at ${ageYears(v)}.")
             return
         }
         if (v.energy <= 0f && !asleep) {
@@ -1445,6 +1469,7 @@ class CivSim(
             o.put("seed", seed)
             o.put("time", time)
             o.put("wood", wood).put("stone", stone).put("food", food)
+            o.put("chron", JSONArray(chronicle.takeLast(40)))
             o.put("ore", ore).put("metal", metal).put("smelted", totalSmelted).put("explored", explored).put("age", age)
             o.put("nextId", nextId)
             o.put("tiles", String(CharArray(tiles.size) { i -> '0' + tiles[i] }))
@@ -1503,6 +1528,9 @@ class CivSim(
             age = o.optInt("age", if (buildings.any { it.type == "farm" }) 1 else 0)
             if (age >= 2 && tiles.none { it == T.ORE }) ensure(T.ORE, 5, 8)
             lastBirth = time
+            chronicle.clear()
+            val ch = o.optJSONArray("chron")
+            if (ch != null) for (i in 0 until ch.length()) chronicle.add(ch.getString(i))
             villagers.clear()
             val vs = o.getJSONArray("villagers")
             for (i in 0 until vs.length()) {
