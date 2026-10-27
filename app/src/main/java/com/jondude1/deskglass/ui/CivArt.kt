@@ -106,6 +106,11 @@ class CivArt {
         'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
         'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
     ))
+    val well = sprite(WELL, mapOf(
+        'R' to 0xFFB5533C.toInt(), 'b' to 0xFF7A4B24.toInt(), 's' to 0xFF9AA0AA.toInt(), 'S' to 0xFF2B68AE.toInt(), 'd' to 0xFF6B707A.toInt(),
+    ))
+    private val chickPal = mapOf('w' to 0xFFF4F0E6.toInt(), 'o' to 0xFFE89A2B.toInt(), 'r' to 0xFFD9373A.toInt(), 'd' to 0xFF222222.toInt(), 'g' to 0xFFC9C3B4.toInt())
+    val chicken = listOf(sprite(CHICK1, chickPal), sprite(CHICK2, chickPal))
     private val firePal = mapOf('y' to 0xFFFFE070.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt(), 's' to 0xFF8E8E96.toInt())
     val fire = listOf(sprite(FIRE1, firePal), sprite(FIRE2, firePal))
 
@@ -240,6 +245,32 @@ class CivArt {
             "dDdDdDdDdDdDdD",
             "dgdgdgdgdgdgdg",
             "ffffffffffffff",
+        )
+        val WELL = listOf(
+            "..RRRR..",
+            ".RRRRRR.",
+            "..b..b..",
+            "..b..b..",
+            ".ssssss.",
+            "ssSSSSss",
+            "sdssssds",
+            ".dddddd.",
+        )
+        val CHICK1 = listOf(
+            "...r...",
+            "..wwd..",
+            ".wwwwo.",
+            "wwwwg..",
+            ".wwwg..",
+            "..o.o..",
+        )
+        val CHICK2 = listOf(
+            ".......",
+            ".......",
+            "..wwwd.",
+            ".wwwwwo",
+            "wwwwgr.",
+            "..o.o..",
         )
         val FIRE1 = listOf(
             "....y...",

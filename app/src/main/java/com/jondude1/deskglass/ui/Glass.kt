@@ -148,7 +148,10 @@ fun GlassButton(
         modifier = modifier
             .scale(scale)
             .clip(shape)
-            .background(if (filled) Glass.Accent.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.10f))
+            .background(
+                if (filled) Brush.verticalGradient(listOf(Glass.Accent.copy(alpha = 0.95f), Glass.Accent.copy(alpha = 0.75f)))
+                else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.07f)))
+            )
             .border(1.dp, Color.White.copy(alpha = 0.22f), shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 28.dp, vertical = 14.dp),

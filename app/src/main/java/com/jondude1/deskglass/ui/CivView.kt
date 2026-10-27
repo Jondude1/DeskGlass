@@ -238,6 +238,7 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    val wellHut = sim.buildings.firstOrNull { it.type == "hut" && it.era >= 1 }
     // things standing on the ground, row by row so lower ones overlap higher ones
     for (y in 0 until GH) {
         for (x in 0 until GW) {
@@ -268,6 +269,27 @@ private fun DrawScope.drawWorld(
                 if (shadowW > 0f) shadow(cx, baseY, shadowW * ps, 3.5f * ps)
                 val sway = if (swaying) kotlin.math.sin(t * 1.3f + (h % 7)) * ps * 0.6f else 0f
                 img(sp, cx - w / 2f + sway, baseY - hh, w, hh)
+            }
+        }
+        if (wellHut != null && wellHut.y == y) {
+            val wsp = art.well
+            val ww = wsp.width * ps
+            val wh = wsp.height * ps
+            val wcx = ox + (wellHut.x + 1.5f) * ts
+            val wby = oy + (wellHut.y + 0.97f) * ts
+            shadow(wcx, wby, ww * 0.9f, 3.5f * ps)
+            img(wsp, wcx - ww / 2f, wby - wh, ww, wh)
+        }
+        for (b in sim.buildings) {
+            if (b.y != y || b.type != "farm") continue
+            for (k in 0 until 2) {
+                val sp = art.chicken[if (((t * 2f + k * 3f).toInt() and 3) == 0) 1 else 0]
+                val cw = sp.width * ps
+                val chh = sp.height * ps
+                val cx = ox + (b.x + 0.5f + kotlin.math.sin(t * 0.3f + k * 2.6f) * 0.9f) * ts
+                val cy = oy + (b.y + 0.9f + 0.12f * k) * ts
+                shadow(cx, cy, cw * 0.9f, 1.8f * ps)
+                img(sp, cx - cw / 2f, cy - chh, cw, chh)
             }
         }
         for (b in sim.buildings) {
