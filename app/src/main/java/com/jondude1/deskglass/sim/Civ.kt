@@ -1822,8 +1822,25 @@ class CivSim(
         mark("A watchtower was built.")
     }
 
+    private var nextWallAt = 0.0
+
+    /** Once a watchtower stands and danger lingers, villagers put up palisade walls around the village. */
+    private fun wallTick() {
+        if (time < nextWallAt || count("tower") < 1 || count("palisade") >= 8) return
+        if (predators.isEmpty() && wars().none { it.first.id == 0 || it.second.id == 0 }) return
+        nextWallAt = time + 45.0
+        if (wood < 6) return
+        val site = findSite()
+        if (site < 0) return
+        wood -= 4
+        addBuilding("palisade", site % GW, site / GW)
+        if (count("palisade") == 1) event("The villagers begin a wooden palisade to keep the beasts out.")
+        mark("A palisade wall was built.")
+    }
+
     private fun predatorTick(dt: Float) {
         defenceTick()
+        wallTick()
         if (predators.isEmpty()) return
         val fires = buildings.filter { it.type == "campfire" || it.type == "tower" }
         val towers = buildings.filter { it.type == "tower" }

@@ -445,6 +445,7 @@ private fun DrawScope.drawWorld(
                 "farm" -> art.farm
                 "smelter" -> art.forge
                 "tower" -> art.tower
+                "palisade" -> art.palisade
                 else -> art.fire[fireFrame]
             }
             val w = sp.width * ps
@@ -734,6 +735,19 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // peaceful deer graze at the edges and glow-eyed beasts show at night
+    if (dark < 0.5f) {
+        for (k in 0 until 3) {
+            val dx = ox + (GW * (0.12f + 0.3f * k) + kotlin.math.sin(t * 0.07f + k * 2.1f) * 2.5f) * ts
+            val dy = oy + (GH * (0.86f - 0.04f * k) + kotlin.math.cos(t * 0.05f + k) * 0.8f) * ts
+            val sp = art.deer[if (((t * 1.2f + k).toInt() and 3) == 0) 1 else 0]
+            val dw = sp.width * ps
+            val dh = sp.height * ps
+            shadow(dx, dy, dw * 0.9f, 2.2f * ps)
+            img(sp, dx - dw / 2f, dy - dh, dw, dh)
+        }
+    }
+
     // predators
     for (p in sim.predators) {
         val sp = when (p.kind) { "bear" -> art.bear; "boar" -> art.boar; else -> art.wolf }
@@ -953,6 +967,20 @@ private fun threatText(sim: CivSim): String? {
 }
 
 @Composable
+private fun StatsChip(sim: CivSim, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .background(Color(0x99101828), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    ) {
+        Text(
+            "Folk ${sim.villagers.size}  ·  Food ${sim.food}  ·  Wood ${sim.wood}  ·  Stone ${sim.stone}",
+            color = Glass.Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
 private fun ThreatChip(sim: CivSim, modifier: Modifier = Modifier) {
     val text = threatText(sim) ?: return
     Box(
@@ -969,7 +997,7 @@ private fun newsTint(line: String): Color {
     val l = line.lowercase()
     return when {
         listOf("killed", "war", "wolves", "wolf", "bear", "boar", "falls", "plague", "attack", "slain", "mourns").any { l.contains(it) } -> Color(0xFFFF9C8A)
-        listOf("built", "raise", "born", "feast", "berries", "welcome", "alliance", "trade").any { l.contains(it) } -> Color(0xFFA6E3A1)
+        listOf("built", "palisade", "raise", "born", "feast", "berries", "welcome", "alliance", "trade").any { l.contains(it) } -> Color(0xFFA6E3A1)
         else -> Glass.InkDim
     }
 }
@@ -1000,6 +1028,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             )
             ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
+            StatsChip(sim, Modifier.align(Alignment.BottomStart).padding(16.dp))
             if (narration != null) {
                 Text(
                     narration!!,
@@ -1032,6 +1061,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     Box(Modifier.fillMaxSize()) {
                         CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
                         ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+                        StatsChip(sim, Modifier.align(Alignment.BottomStart).padding(12.dp))
                     }
                 }
             }

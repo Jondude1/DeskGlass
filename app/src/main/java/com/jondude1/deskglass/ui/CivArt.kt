@@ -118,6 +118,11 @@ class CivArt {
         'w' to 0xFF8A5A2B.toInt(), 'W' to 0xFF6B4220.toInt(), 'r' to 0xFFB8452F.toInt(), 'R' to 0xFF8E3322.toInt(),
         'f' to 0xFFFFC34A.toInt(), 'd' to 0xFF4A2E1B.toInt(),
     ))
+    val palisade = sprite(PALISADE, mapOf(
+        'w' to 0xFF9A6B38.toInt(), 'W' to 0xFF7A5028.toInt(), 'k' to 0xFF3A2614.toInt(),
+    ))
+    private val deerPal = mapOf('d' to 0xFFB98A52.toInt(), 'D' to 0xFFF2E3C4.toInt(), 'a' to 0xFF6B4A2B.toInt(), 'n' to 0xFF2A1C12.toInt())
+    val deer = listOf(sprite(DEER1, deerPal), sprite(DEER2, deerPal))
     val farm = sprite(FARM, mapOf(
         'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
         'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
@@ -406,6 +411,35 @@ class CivArt {
             ".bbbbbbbbp",
             ".B.B..B.B.",
             ".B.B..B.B.",
+        )
+        val PALISADE = listOf(
+            "w.w.w.w.w.w.",
+            "wWwWwWwWwWwW",
+            "wWwWwWwWwWwW",
+            "wWwWwWwWwWwW",
+            "kkkkkkkkkkkk",
+        )
+        val DEER1 = listOf(
+            "......a.a...",
+            ".......aa...",
+            "......dddn..",
+            ".dddddddd...",
+            "dddddddddd..",
+            "dddddddddd..",
+            ".dDdDdDdDd..",
+            ".d.d..d.d...",
+            ".d.d..d.d...",
+        )
+        val DEER2 = listOf(
+            "......a.a...",
+            ".......aa...",
+            "......dddn..",
+            ".dddddddd...",
+            "dddddddddd..",
+            "dddddddddd..",
+            ".dDdDdDdDd..",
+            "..d.d.d.d...",
+            ".d..d..d.d..",
         )
         val TOWER = listOf(
             "....rrrr....",
