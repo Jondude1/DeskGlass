@@ -25,6 +25,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -76,6 +77,14 @@ fun AuroraBackground(animate: Boolean, modifier: Modifier = Modifier) {
             )
         }
 
+        // faint twinkling stars
+        for (i in 0 until 26) {
+            val sx = ((i * 7919) % 1000) / 1000f * w
+            val sy = ((i * 104729) % 1000) / 1000f * h
+            val tw = 0.5f + 0.5f * sin(a * 6f + i * 1.7f)
+            drawCircle(Color.White.copy(alpha = 0.10f + 0.28f * tw), radius = 1.2f + (i % 3) * 0.7f, center = Offset(sx, sy))
+        }
+
         blob(Color(0xFF4F5BFF), w * (0.20f + 0.10f * sin(a)), h * (0.30f + 0.12f * cos(a)), w * 0.50f)
         blob(Color(0xFF16C6B5), w * (0.82f + 0.08f * cos(a * 2f)), h * (0.25f + 0.10f * sin(a)), w * 0.42f)
         blob(Color(0xFFC04BDB), w * (0.65f + 0.10f * sin(a + 2f)), h * (0.88f + 0.06f * cos(a)), w * 0.52f)
@@ -99,6 +108,16 @@ fun GlassCard(
                     listOf(Color.White.copy(alpha = 0.17f), Color.White.copy(alpha = 0.06f))
                 )
             )
+            .drawBehind {
+                // soft glossy highlight along the top edge
+                drawRect(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.10f), Color.Transparent),
+                        endY = size.height * 0.35f,
+                    ),
+                    size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.35f),
+                )
+            }
             .border(
                 1.dp,
                 Brush.linearGradient(

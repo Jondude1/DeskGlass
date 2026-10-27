@@ -121,6 +121,68 @@ private fun DrawScope.img(
     )
 }
 
+/** Little hats and tools drawn over each villager so every job reads at a glance. */
+private fun DrawScope.jobGear(job: String, px: Float, top: Float, u: Float, working: Boolean, t: Float) {
+    fun r(c: Long, x: Float, y: Float, w: Float, h: Float) =
+        drawRect(Color(c), Offset(px + x * u, top + y * u), Size(w * u, h * u))
+    val swing = if (working) kotlin.math.sin(t * 8f) * 0.8f else 0f
+    when (job) {
+        "Woodcutter" -> {
+            r(0xFFC0392B, 1.5f, -0.2f, 5f, 1.2f) // red cap
+            r(0xFF6B4A2B, 7.6f, 4f + swing, 0.9f, 5f) // axe handle
+            r(0xFFC9CED6, 6.6f, 4f + swing, 2f, 1.5f) // axe head
+        }
+        "Miner" -> {
+            r(0xFFF2C230, 1.2f, -0.8f, 5.6f, 1.8f) // helmet
+            r(0xFFFFF6B0, 3.4f, -0.4f, 1.2f, 0.8f) // lamp
+            r(0xFF6B4A2B, 7.6f, 4.5f - swing, 0.9f, 5f) // pick handle
+            r(0xFF9AA0AA, 6.4f, 4.2f - swing, 3f, 0.9f)
+        }
+        "Forager" -> {
+            r(0xFF4E9E4A, 1.8f, -0.2f, 4.4f, 1.1f) // leafy band
+            r(0xFFA67E4B, 6.2f, 8f, 3f, 2.4f) // basket
+            r(0xFFE0405A, 6.8f, 7.6f, 0.9f, 0.9f)
+            r(0xFFE0405A, 8f, 7.8f, 0.9f, 0.9f)
+        }
+        "Farmer" -> {
+            r(0xFFE8C547, -0.8f, 0.6f, 9.6f, 0.9f) // straw brim
+            r(0xFFD9AE2F, 1.8f, -1f, 4.4f, 1.8f) // crown
+            r(0xFF6B4A2B, 7.8f, 3f + swing * 0.5f, 0.8f, 7f) // hoe
+            r(0xFF9AA0AA, 7f, 9.6f + swing * 0.5f, 2.4f, 0.8f)
+        }
+        "Builder" -> {
+            r(0xFFEF7B1E, 1.2f, -0.8f, 5.6f, 1.8f) // hard hat
+            r(0xFFEF7B1E, 0.6f, 0.6f, 6.8f, 0.6f)
+            r(0xFF6B4A2B, 7.6f, 5f + swing, 0.9f, 3.5f) // hammer
+            r(0xFF6E6E78, 6.8f, 4.4f + swing, 2.5f, 1.2f)
+        }
+        "Scout" -> {
+            r(0xFF2F7F52, 1.2f, -0.6f, 5.6f, 1.6f) // green cap
+            r(0xFFE0405A, 6f, -2f, 0.9f, 2.4f) // feather
+            r(0xFF8A5A2B, -0.3f, 5f, 1f, 6f) // walking stick
+        }
+        "Storyteller" -> {
+            r(0xFF6D3AA8, 1.6f, -0.6f, 4.8f, 1.4f)
+            r(0xFF8E4FD9, 2.6f, -2f, 2.8f, 1.6f)
+            r(0xFF8E4FD9, 3.4f, -3.2f, 1.2f, 1.4f)
+            r(0xFFFFE066, 3.7f, -2.8f, 0.6f, 0.6f) // star
+        }
+        "Hunter" -> {
+            r(0xFF5A6B2E, 1.4f, -0.4f, 5.2f, 1.3f) // hood
+            r(0xFF8A5A2B, 7.6f, 3f, 0.8f, 7f) // bow
+            r(0xFFEFEFEF, 8.4f, 3.2f, 0.3f, 6.6f) // string
+            r(0xFF8A5A2B, 6.6f, 3f, 1.4f, 0.8f)
+            r(0xFF8A5A2B, 6.6f, 9.4f, 1.4f, 0.8f)
+        }
+        "Bronzesmith", "Blacksmith" -> {
+            r(if (job == "Blacksmith") 0xFF2E2E34 else 0xFF8B5A2B, 1.4f, -0.4f, 5.2f, 1.3f) // cap
+            r(0xFF3B2A1A, 2f, 6f, 4f, 4.2f) // apron
+            r(0xFF6B4A2B, 7.6f, 5f + swing, 0.9f, 3.5f) // hammer
+            r(if (job == "Blacksmith") 0xFF8A8A94 else 0xFFCD7F32, 6.8f, 4.4f + swing, 2.5f, 1.4f)
+        }
+    }
+}
+
 private fun cellHash(x: Int, y: Int): Int = ((x * 73856093) xor (y * 19349663)) and 0x7fffffff
 
 private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
@@ -155,6 +217,15 @@ private fun DrawScope.drawWorld(
             else -> art.grass[h and 3]
         }
         img(tile, ox + x * ts, oy + y * ts, ts + 1f, ts + 1f)
+        if (sim.tiles[i] == T.WATER && h % 5 == 0) {
+            val tw = kotlin.math.sin(t * 2.4f + (h % 13)).coerceIn(0f, 1f)
+            if (tw > 0.05f) {
+                val sx = ox + x * ts + ((h shr 3) % 12 + 2) * ps
+                val sy = oy + y * ts + ((h shr 7) % 12 + 2) * ps
+                drawRect(Color.White.copy(alpha = 0.85f * tw), Offset(sx, sy), Size(ps * 1.5f, ps * 1.5f))
+                drawRect(Color.White.copy(alpha = 0.4f * tw), Offset(sx - ps, sy + ps * 0.4f), Size(ps * 3.5f, ps * 0.7f))
+            }
+        }
         if (sim.tiles[i] == T.GRASS && h % 9 == 0) {
             val fc = when ((h / 9) % 3) {
                 0 -> Color(0xFFFFFFFF)
@@ -261,6 +332,7 @@ private fun DrawScope.drawWorld(
             }
         } else {
             img(sp, px, feetY - h - bob, w, h)
+            if (!sim.isChild(v)) jobGear(v.job, px, feetY - h - bob, w / 8f, v.phase == "working", t + v.id)
         }
         if (v.phase == "working" && (v.action.startsWith("gather_") || v.action == "mine_ore" || v.action == "smelt")) {
             val col = when (v.action) {
@@ -278,6 +350,29 @@ private fun DrawScope.drawWorld(
                     Size(ps * 1.6f, ps * 1.6f),
                 )
             }
+        }
+    }
+
+    // butterflies by day, small birds crossing over the village
+    if (dark < 0.25f) {
+        for (k in 0 until 5) {
+            val bx = ox + (GW * 0.5f + kotlin.math.sin(t * 0.21f + k * 1.9f) * GW * 0.38f) * ts
+            val by = oy + (GH * 0.5f + kotlin.math.cos(t * 0.17f + k * 2.7f) * GH * 0.36f) * ts
+            val flap = kotlin.math.abs(kotlin.math.sin(t * 14f + k * 3f))
+            val c = when (k % 3) { 0 -> Color(0xFFFFE066); 1 -> Color(0xFFFF8FB8); else -> Color(0xFFBFE3FF) }
+            drawRect(c, Offset(bx - ps * 2.2f * flap - ps * 0.5f, by - ps), Size(ps * 2.2f * flap + ps * 0.5f, ps * 1.8f))
+            drawRect(c, Offset(bx + ps * 0.3f, by - ps), Size(ps * 2.2f * flap + ps * 0.5f, ps * 1.8f))
+            drawRect(Color(0xFF3B2A1A), Offset(bx - ps * 0.3f, by - ps * 0.8f), Size(ps * 0.8f, ps * 1.8f))
+        }
+        val span2 = GW * ts + 8f * ts
+        for (k in 0 until 3) {
+            val bx = ox - 4f * ts + ((t * ts * (0.9f + 0.3f * k) + k * span2 / 3f) % span2)
+            val by = oy + (GH * (0.2f + 0.25f * k) + kotlin.math.sin(t * 0.8f + k) * 1.2f) * ts
+            val wing = kotlin.math.sin(t * 9f + k * 2f) * ps * 1.4f
+            val col = Color(0xFF2A2A33).copy(alpha = 0.75f)
+            drawLine(col, Offset(bx - ps * 2.5f, by - wing), Offset(bx, by), strokeWidth = ps * 0.9f)
+            drawLine(col, Offset(bx + ps * 2.5f, by - wing), Offset(bx, by), strokeWidth = ps * 0.9f)
+            drawOval(Color.Black.copy(alpha = 0.12f), Offset(bx - ps * 2f, by + ts * 1.6f), Size(ps * 4f, ps * 1.6f))
         }
     }
 
