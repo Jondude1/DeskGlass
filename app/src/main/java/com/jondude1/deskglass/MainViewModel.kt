@@ -11,7 +11,6 @@ import com.jondude1.deskglass.ai.ApiException
 import com.jondude1.deskglass.ai.ChatEngine
 import com.jondude1.deskglass.ai.ChatMessage
 import com.jondude1.deskglass.ai.ChatStore
-import com.jondude1.deskglass.ai.GameGenerator
 import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
