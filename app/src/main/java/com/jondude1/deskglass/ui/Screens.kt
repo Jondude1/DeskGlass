@@ -1,5 +1,7 @@
 package com.jondude1.deskglass.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +84,11 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var fastDraft by remember { mutableStateOf(vm.prefs.fastModel) }
     var aiStatus by remember { mutableStateOf<String?>(null) }
     var confirmMemory by remember { mutableStateOf(false) }
+    val driveFolder by vm.driveFolder.collectAsState()
+    val driveStatus by vm.driveStatus.collectAsState()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) vm.setDriveFolder(uri)
+    }
 
     Column(Modifier.fillMaxSize()) {
         BackBar("Settings", onBack)
@@ -193,6 +200,30 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                             }
                         })
                     }
+                }
+            }
+
+            GlassCard(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionLabel("GOOGLE DRIVE BACKUP")
+                    Text(
+                        if (driveFolder != null) "Notes are copied to: $driveFolder" else "Not set up yet",
+                        color = Glass.Ink,
+                        fontSize = 20.sp,
+                    )
+                    Text(
+                        "Pick a folder in Google Drive (make a new one called DeskGlass Notes). Each note is saved there as a Markdown file, with a picture of any handwriting. It updates a little after you stop editing.",
+                        color = Glass.InkDim,
+                        fontSize = 17.sp,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GlassButton(if (driveFolder == null) "Choose folder" else "Change folder", { picker.launch(null) }, filled = driveFolder == null)
+                        if (driveFolder != null) {
+                            GlassButton("Sync now", { vm.syncDriveNow() })
+                            GlassButton("Stop", { vm.stopDriveSync() })
+                        }
+                    }
+                    driveStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp) }
                 }
             }
 

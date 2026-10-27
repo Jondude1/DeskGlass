@@ -46,6 +46,14 @@ class Prefs(context: Context) {
             .apply()
     }
 
+    var driveFolder: String?
+        get() = sp.getString("driveFolder", null)
+        set(v) = sp.edit().apply { if (v == null) remove("driveFolder") else putString("driveFolder", v) }.apply()
+
+    var driveFolderName: String
+        get() = sp.getString("driveFolderName", "") ?: ""
+        set(v) = sp.edit().putString("driveFolderName", v).apply()
+
     var place: Place?
         get() {
             val raw = sp.getString("place", null) ?: return null

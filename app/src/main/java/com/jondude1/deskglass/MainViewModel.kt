@@ -1,6 +1,9 @@
 package com.jondude1.deskglass
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jondude1.deskglass.ai.AiTasks
@@ -11,6 +14,7 @@ import com.jondude1.deskglass.ai.ChatStore
 import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
+import com.jondude1.deskglass.data.DriveSync
 import com.jondude1.deskglass.data.Event
 import com.jondude1.deskglass.data.EventStore
 import com.jondude1.deskglass.data.Note
@@ -24,6 +28,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 
 sealed interface WeatherState {
@@ -115,6 +122,67 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val existing = checklistStore.lists.value.firstOrNull { it.name.equals(listName, ignoreCase = true) }
         val id = existing?.id ?: checklistStore.addList(listName)
         items.forEach { checklistStore.addItem(id, it) }
+    }
+
+    // ---- Google Drive folder sync ----
+
+    private val driveSync = DriveSync(app, prefs)
+    private val driveLock = Mutex()
+
+    private val _driveFolder = MutableStateFlow(prefs.driveFolderName.ifBlank { null }.takeIf { prefs.driveFolder != null })
+    val driveFolder: StateFlow<String?> = _driveFolder.asStateFlow()
+
+    private val _driveStatus = MutableStateFlow<String?>(null)
+    val driveStatus: StateFlow<String?> = _driveStatus.asStateFlow()
+
+    fun setDriveFolder(uri: Uri) {
+        val app = getApplication<Application>()
+        try {
+            app.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        } catch (e: Exception) {
+            // Some providers don't offer persistable access; syncing may still work this session.
+        }
+        prefs.driveFolder = uri.toString()
+        prefs.driveFolderName = DocumentFile.fromTreeUri(app, uri)?.name ?: "Chosen folder"
+        _driveFolder.value = prefs.driveFolderName
+        syncDriveNow()
+    }
+
+    fun stopDriveSync() {
+        prefs.driveFolder = null
+        _driveFolder.value = null
+        _driveStatus.value = null
+    }
+
+    fun syncDriveNow() {
+        viewModelScope.launch { runDriveSync(announce = true) }
+    }
+
+    private suspend fun runDriveSync(announce: Boolean) {
+        if (prefs.driveFolder == null) return
+        driveLock.withLock {
+            if (announce) _driveStatus.value = "Syncing…"
+            try {
+                val result = driveSync.sync(noteStore.notes.value)
+                val time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"))
+                _driveStatus.value = "$result Last checked $time."
+            } catch (e: Exception) {
+                _driveStatus.value = "Drive sync failed: ${e.message}"
+            }
+        }
+    }
+
+    init {
+        // Back up a little after notes stop changing.
+        viewModelScope.launch {
+            noteStore.notes.collectLatest {
+                delay(30_000L)
+                runDriveSync(announce = false)
+            }
+        }
     }
 
     // ---- The line under the clock ----

@@ -10,8 +10,12 @@ import com.jondude1.deskglass.data.InkStroke
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 
-/** Draws handwriting black-on-white (so it reads well) and returns it as a base64 PNG. */
-fun renderInkBase64(strokes: List<InkStroke>): String {
+/** Handwriting as a base64 PNG, for sending to Claude. */
+fun renderInkBase64(strokes: List<InkStroke>): String =
+    Base64.encodeToString(renderInkPng(strokes), Base64.NO_WRAP)
+
+/** Draws handwriting black-on-white (so it reads well) and returns the PNG bytes. */
+fun renderInkPng(strokes: List<InkStroke>): ByteArray {
     val w = 1600
     val maxY = strokes.maxOf { s -> s.points.maxOf { it.second } }
     val h = (maxY * w + 80f).toInt().coerceIn(400, 4800)
@@ -47,5 +51,5 @@ fun renderInkBase64(strokes: List<InkStroke>): String {
     val out = ByteArrayOutputStream()
     bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
     bmp.recycle()
-    return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    return out.toByteArray()
 }
