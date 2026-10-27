@@ -20,6 +20,7 @@ object Llm {
             .put("temperature", 0.8)
             .put("max_tokens", maxTokens)
             .put("reasoning_effort", "none")
+            .put("reasoning_effort", "none")
             .put(
                 "messages",
                 JSONArray()

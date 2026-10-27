@@ -18,16 +18,35 @@ class CivArt {
         return bmp.asImageBitmap()
     }
 
-    private fun grassTile(seed: Int): ImageBitmap {
+    private fun speckled(seed: Int, base: Int, dark: Int, light: Int): ImageBitmap {
         val r = Random(seed.toLong())
         val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
         for (y in 0 until 16) for (x in 0 until 16) {
-            val roll = r.nextInt(14)
-            bmp.setPixel(x, y, when (roll) {
-                0 -> 0xFF4C9650.toInt()
-                1 -> 0xFF63B05C.toInt()
-                else -> 0xFF58A653.toInt()
+            bmp.setPixel(x, y, when (r.nextInt(13)) {
+                0 -> dark
+                1 -> light
+                else -> base
             })
+        }
+        return bmp.asImageBitmap()
+    }
+
+    private fun grassTile(seed: Int): ImageBitmap {
+        val r = Random(seed.toLong() * 31)
+        val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        for (y in 0 until 16) for (x in 0 until 16) {
+            bmp.setPixel(x, y, when (r.nextInt(14)) {
+                0 -> 0xFF4C9650.toInt()
+                1 -> 0xFF67B55F.toInt()
+                else -> 0xFF5AA854.toInt()
+            })
+        }
+        // a couple of little grass blades
+        for (k in 0 until 3) {
+            val x = 1 + r.nextInt(13)
+            val y = 2 + r.nextInt(12)
+            bmp.setPixel(x, y, 0xFF3F8744.toInt())
+            bmp.setPixel(x, y - 1, 0xFF3F8744.toInt())
         }
         return bmp.asImageBitmap()
     }
@@ -35,98 +54,143 @@ class CivArt {
     private fun waterTile(frame: Int): ImageBitmap {
         val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
         for (y in 0 until 16) for (x in 0 until 16) {
-            val wave = ((x + frame * 3 + (y / 4) * 5) % 8) == 0 && y % 4 == 1
-            bmp.setPixel(x, y, if (wave) 0xFF6FA3DC.toInt() else 0xFF2F6FB5.toInt())
+            val ripple = ((x + frame * 4 + (y / 4) * 6) % 10) < 2 && y % 4 == 1
+            val deep = ((x / 4 + y / 4) % 2) == 0
+            bmp.setPixel(
+                x, y,
+                if (ripple) 0xFF8CBDE8.toInt() else if (deep) 0xFF2B68AE.toInt() else 0xFF3175BC.toInt()
+            )
         }
         return bmp.asImageBitmap()
     }
 
     val grass = List(4) { grassTile(it + 1) }
+    val sand = List(2) { speckled(50 + it, 0xFFE6D394.toInt(), 0xFFD4BE7C.toInt(), 0xFFF2E4B0.toInt()) }
     val water = List(2) { waterTile(it) }
 
-    val tree = sprite(TREE, mapOf('g' to 0xFF3E8E41.toInt(), 'G' to 0xFF2F6F34.toInt(), 't' to 0xFF7A4B24.toInt(), 'T' to 0xFF5A3517.toInt()))
-    val stump = sprite(STUMP, mapOf('t' to 0xFF7A4B24.toInt(), 'T' to 0xFF5A3517.toInt()))
-    val rock = sprite(ROCK, mapOf('r' to 0xFF9AA0AA.toInt(), 'R' to 0xFFC3C8D0.toInt(), 'd' to 0xFF6B707A.toInt()))
-    private val bushPal = mapOf('g' to 0xFF3E8E41.toInt(), 'G' to 0xFF2F6F34.toInt(), 'r' to 0xFFD7384E.toInt())
+    val oak = sprite(OAK, mapOf(
+        'g' to 0xFF3E8E41.toInt(), 'G' to 0xFF2C6B33.toInt(), 'h' to 0xFF6BB85A.toInt(),
+        't' to 0xFF7A4B24.toInt(), 'T' to 0xFF54331A.toInt(),
+    ))
+    val pine = sprite(PINE, mapOf(
+        'p' to 0xFF2F7F52.toInt(), 'P' to 0xFF1F5A3B.toInt(), 'q' to 0xFF4E9E6A.toInt(),
+        't' to 0xFF7A4B24.toInt(), 'T' to 0xFF54331A.toInt(),
+    ))
+    val stump = sprite(STUMP, mapOf('t' to 0xFF7A4B24.toInt(), 'T' to 0xFF54331A.toInt(), 'c' to 0xFFD9B77E.toInt()))
+    val rock = sprite(ROCK, mapOf('r' to 0xFF9AA0AA.toInt(), 'R' to 0xFFC9CED6.toInt(), 'd' to 0xFF6B707A.toInt()))
+    private val bushPal = mapOf('g' to 0xFF3E8E41.toInt(), 'G' to 0xFF2C6B33.toInt(), 'h' to 0xFF6BB85A.toInt(), 'r' to 0xFFE0405A.toInt())
     val bush = sprite(BUSH, bushPal)
     val bushEmpty = sprite(BUSH.map { it.replace('r', 'g') }, bushPal)
-    val hut = sprite(HUT, mapOf('r' to 0xFFB5533C.toInt(), 'R' to 0xFF8F3E2C.toInt(), 'w' to 0xFFD9B77E.toInt(), 'd' to 0xFF4A2E1B.toInt(), 'b' to 0xFF8A6A3E.toInt()))
-    val farm = sprite(FARM, mapOf('d' to 0xFF6B4A2B.toInt(), 'g' to 0xFF7BC043.toInt(), 'G' to 0xFFE8C547.toInt()))
-    private val firePal = mapOf('y' to 0xFFFFD54A.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt())
+    val hut = sprite(HUT, mapOf(
+        'r' to 0xFFB5533C.toInt(), 'R' to 0xFF8F3E2C.toInt(), 'S' to 0xFFD97A5C.toInt(),
+        'w' to 0xFFDDBB82.toInt(), 'W' to 0xFFBF9C63.toInt(), 'd' to 0xFF4A2E1B.toInt(),
+        'k' to 0xFF9FD3F0.toInt(), 'b' to 0xFF8A6A3E.toInt(), 'c' to 0xFF6E6E78.toInt(),
+    ))
+    val farm = sprite(FARM, mapOf(
+        'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
+        'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
+    ))
+    private val firePal = mapOf('y' to 0xFFFFE070.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt(), 's' to 0xFF8E8E96.toInt())
     val fire = listOf(sprite(FIRE1, firePal), sprite(FIRE2, firePal))
 
     private val shirts = intArrayOf(0xFFD94F4F.toInt(), 0xFF4F7FD9.toInt(), 0xFFE0B040.toInt(), 0xFF8E4FD9.toInt(), 0xFF4FB58E.toInt(), 0xFFE07A3A.toInt(), 0xFFD94F9B.toInt(), 0xFFEFEFEF.toInt())
+    private val shirtShade = intArrayOf(0xFFA83A3A.toInt(), 0xFF3A62A8.toInt(), 0xFFB48C2E.toInt(), 0xFF6D3AA8.toInt(), 0xFF3A8D6E.toInt(), 0xFFB05E2A.toInt(), 0xFFA83A78.toInt(), 0xFFC0C0C0.toInt())
     private val hairs = intArrayOf(0xFF3B2A1A.toInt(), 0xFF8A5A2B.toInt(), 0xFF222222.toInt(), 0xFFD9B04A.toInt(), 0xFF7A2E1E.toInt(), 0xFFB0B0B0.toInt(), 0xFF5A3A6A.toInt(), 0xFF2E4A3A.toInt())
     private val people = List(8) { i ->
-        val pal = mapOf('r' to hairs[i], 'h' to 0xFFF0C8A0.toInt(), 'd' to 0xFF222222.toInt(), 's' to shirts[i], 'p' to 0xFF3A3F5C.toInt())
+        val pal = mapOf(
+            'r' to hairs[i], 'h' to 0xFFF2CBA3.toInt(), 'H' to 0xFFD9A982.toInt(), 'd' to 0xFF222222.toInt(),
+            's' to shirts[i], 'S' to shirtShade[i], 'p' to 0xFF3A3F5C.toInt(), 'b' to 0xFF3B2A1A.toInt(),
+        )
         listOf(sprite(PERSON1, pal), sprite(PERSON2, pal))
     }
 
     fun person(colorIdx: Int, frame: Int): ImageBitmap = people[colorIdx.coerceIn(0, 7)][frame and 1]
 
     companion object {
-        val TREE = listOf(
-            "...gggggg...",
-            "..gGggggGg..",
-            ".gggGgggggg.",
-            ".ggggggGggg.",
-            "gGgggGggggGg",
-            "gggggggggggg",
-            ".ggGgggggGg.",
-            "..gggggggg..",
+        val OAK = listOf(
+            "....hhhhhh....",
+            "..hhhhgggggg..",
+            ".hhhggggggGgg.",
+            ".hhgggggggggg.",
+            "hhgggGgggggggG",
+            "hgggggggGggggg",
+            "gggGgggggggGgg",
+            ".ggggggGggggg.",
+            ".GgggggggggGg.",
+            "..GGgggggGGG..",
+            "....GGGGGG....",
+            "......tt......",
+            "......tT......",
+            "......tT......",
+            ".....tttT.....",
+            "....ttTTTt....",
+        )
+        val PINE = listOf(
+            ".....qq.....",
+            "....qppp....",
+            "....ppPp....",
+            "...qpppPp...",
+            "...pppPpp...",
+            "..qppppPpp..",
+            "..pppPpppp..",
+            ".qpppppPppp.",
+            ".ppPpppppPp.",
+            "qppppPpppppp",
+            "pppPpppppPpp",
             "....tttt....",
-            ".....tt.....",
-            ".....tT.....",
-            "....tttt....",
+            "....tTtt....",
+            "....tTtt....",
         )
         val STUMP = listOf(
-            "..tttt..",
+            "..cccc..",
+            ".cttttc.",
+            ".tttTtt.",
             ".tTttTt.",
-            ".tttttt.",
-            "..tttt..",
+            "..tTTt..",
         )
         val ROCK = listOf(
             "....rrrr....",
-            "..rrRRrrrr..",
-            ".rrRRrrrrrrd",
-            "rrrrrrrrDrrd".replace('D', 'd'),
+            "..rrRRRrrr..",
+            ".rrRRRrrrrrd",
+            "rrrRRrrrrrrd",
+            "rrrrrrrrdrrd",
             "rrrdrrrrrrdd",
             ".rrrrrrrrddd",
             "..dddddddd..",
         )
         val BUSH = listOf(
-            "...gggg...",
-            "..ggGggg..",
-            ".gggggrggg",
-            "ggrgggggGg",
-            "gggggGgrgg",
-            ".ggggggggg",
-            "..gggggg..",
+            "...hhgg...",
+            "..hhgGgg..",
+            ".hgggrggGg",
+            "hgrgggggGg",
+            "ggggGgrggg",
+            ".gggggggGg",
+            "..GGGGGG..",
         )
         val HUT = listOf(
-            "......rr......",
-            "....rrrrrr....",
-            "..rrrrRrrrrr..",
-            ".rrrrrrRrrrrr.",
-            "rrrrrrrrrrrrrr",
+            "......RR......",
+            "....SSrrRR....",
+            "..SSrrrrrrRR..",
+            ".SrrrrrrrrrrR.",
+            "rrrrrrrrrrrrrR",
             ".wwwwwwwwwwww.",
-            ".wwwwwwwwwwww.",
+            ".wkkwwwwwkkw..".replace("..", "W."),
+            ".wkkwddddwkkw.",
             ".wwwwddddwwww.",
-            ".wwwwddddwwww.",
-            ".wwwwddddwwww.",
+            ".WwwwddddwwwW.",
             ".bbbbbbbbbbbb.",
         )
         val FARM = listOf(
-            "dddddddddddddd",
+            "ffffffffffffff",
+            "dDdDdDdDdDdDdD",
             "dgdgdgdgdgdgdg",
             "dGdGdGdGdGdGdG",
-            "dddddddddddddd",
+            "dDdDdDdDdDdDdD",
             "dgdgdgdgdgdgdg",
             "dGdGdGdGdGdGdG",
-            "dddddddddddddd",
+            "dDdDdDdDdDdDdD",
             "dgdgdgdgdgdgdg",
-            "dGdGdGdGdGdGdG",
-            "dddddddddddddd",
+            "ffffffffffffff",
         )
         val FIRE1 = listOf(
             "....y...",
@@ -135,6 +199,7 @@ class CivArt {
             "..yooy..",
             "..LlLlL.",
             ".LLLLLL.",
+            "..ssss..",
         )
         val FIRE2 = listOf(
             "...y....",
@@ -143,30 +208,35 @@ class CivArt {
             ".yyooyy.",
             "..LlLlL.",
             ".LLLLLL.",
+            "..ssss..",
         )
         val PERSON1 = listOf(
-            ".rrrr.",
-            ".hhhh.",
-            ".hdhd.",
-            "..hh..",
-            ".ssss.",
-            "hssssh",
-            "hssssh",
-            ".pppp.",
-            ".p..p.",
-            ".p..p.",
+            "..rrrr..",
+            ".rrrrrr.",
+            ".rhhhhr.",
+            ".hdhhdh.",
+            "..hHHh..",
+            ".ssssss.",
+            "hsSssSsh",
+            "hssssssh",
+            ".sSssSs.",
+            ".pppppp.",
+            ".pp..pp.",
+            ".bb..bb.",
         )
         val PERSON2 = listOf(
-            ".rrrr.",
-            ".hhhh.",
-            ".hdhd.",
-            "..hh..",
-            ".ssss.",
-            "hssssh",
-            "hssssh",
-            ".pppp.",
-            "..pp..",
-            "..pp..",
+            "..rrrr..",
+            ".rrrrrr.",
+            ".rhhhhr.",
+            ".hdhhdh.",
+            "..hHHh..",
+            ".ssssss.",
+            "hsSssSsh",
+            "hssssssh",
+            ".sSssSs.",
+            ".pppppp.",
+            "..pppp..",
+            "..bbbb..",
         )
     }
 }
