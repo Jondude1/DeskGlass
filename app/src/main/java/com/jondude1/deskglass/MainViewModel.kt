@@ -244,7 +244,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Asks the local model one small question, to check the address and model name. */
     suspend fun testCivBrain(url: String, model: String): String = withContext(Dispatchers.IO) {
         try {
-            val answer = Llm.chat(url, model, "Reply with the single word: ready", "Are you there?", maxTokens = 60)
+            val answer = Llm.chat(url, model, "Reply with the single word: ready", "Are you there?", maxTokens = 300)
             if (answer.isBlank()) "Connected, but the model sent an empty answer." else "Connected. The model says: ${answer.take(60)}"
         } catch (e: Exception) {
             errorLog.add("Village test", "${e.javaClass.simpleName}: ${e.message}\nAddress: $url  Model: $model")

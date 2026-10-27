@@ -13,17 +13,18 @@ object Llm {
         return if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
     }
 
-    fun chat(baseUrl: String, model: String, system: String, user: String, maxTokens: Int = 400): String {
+    fun chat(baseUrl: String, model: String, system: String, user: String, maxTokens: Int = 700): String {
         val body = JSONObject()
             .put("model", model.trim())
             .put("stream", false)
             .put("temperature", 0.8)
             .put("max_tokens", maxTokens)
+            .put("reasoning_effort", "none")
             .put(
                 "messages",
                 JSONArray()
                     .put(JSONObject().put("role", "system").put("content", system))
-                    .put(JSONObject().put("role", "user").put("content", user))
+                    .put(JSONObject().put("role", "user").put("content", "$user /no_think"))
             )
         val c = URL(endpoint(baseUrl)).openConnection() as HttpURLConnection
         try {
