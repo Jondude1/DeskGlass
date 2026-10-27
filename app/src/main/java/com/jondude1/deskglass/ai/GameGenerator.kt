@@ -19,7 +19,8 @@ class GameGenerator(private val prefs: Prefs) {
                 previousTitles.takeLast(12).joinToString("; ") + "."
         val body = JSONObject()
             .put("model", prefs.chatModel.trim())
-            .put("max_tokens", 24000)
+            .put("max_tokens", 32000)
+            .put("thinking", JSONObject().put("type", "between_tools"))
             .put("system", SYSTEM)
             .put(
                 "messages",
@@ -35,7 +36,7 @@ class GameGenerator(private val prefs: Prefs) {
         } catch (e: IllegalArgumentException) {
             val head = raw.trim().replace("\n", " ").take(300)
             throw IllegalArgumentException(
-                "No game in Claude's answer (${raw.length} characters, stop reason: ${res.stopReason.ifEmpty { "none" }}). " +
+                "No game in Claude's answer (${raw.length} characters, stop reason: ${res.stopReason.ifEmpty { "none" }}, ${res.otherChars} characters of thinking). " +
                     "It began: \"$head\""
             )
         }

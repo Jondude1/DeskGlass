@@ -4,7 +4,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 
-class StreamResult(val text: String, val stopReason: String)
+class StreamResult(val text: String, val stopReason: String, val otherChars: Int = 0)
 
 class ApiException(val code: Int, message: String, val raw: String = "") : Exception(message)
 
@@ -58,6 +58,7 @@ object ClaudeApi {
             if (code !in 200..299) fail(c, code)
             val sb = StringBuilder()
             var stop = ""
+            var other = 0
             c.inputStream.bufferedReader().use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -69,17 +70,18 @@ object ClaudeApi {
                         "content_block_delta" -> {
                             val d = ev.getJSONObject("delta")
                             if (d.optString("type") == "text_delta") sb.append(d.getString("text"))
+                            else other += d.optString("thinking").length
                         }
                         "error" -> throw ApiException(
                             500,
                             ev.optJSONObject("error")?.optString("message") ?: "The stream was interrupted."
                         )
                         "message_delta" -> stop = ev.optJSONObject("delta")?.optString("stop_reason") ?: stop
-                        "message_stop" -> return StreamResult(sb.toString(), stop)
+                        "message_stop" -> return StreamResult(sb.toString(), stop, other)
                     }
                 }
             }
-            return StreamResult(sb.toString(), stop)
+            return StreamResult(sb.toString(), stop, other)
         } finally {
             c.disconnect()
         }
