@@ -398,7 +398,7 @@ private fun StepBtn(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun editorFieldColors() = OutlinedTextFieldDefaults.colors(
+internal fun editorFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = Glass.Ink,
     unfocusedTextColor = Glass.Ink,
     cursorColor = Glass.Accent,

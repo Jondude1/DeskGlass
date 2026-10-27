@@ -90,10 +90,7 @@ fun DeskGlassApp(vm: MainViewModel) {
                     "Notes",
                     "Typed and S Pen notes, synced to Google Drive.",
                 ) { screen = Screen.Home }
-                Screen.Checklists -> PlaceholderScreen(
-                    "Checklists",
-                    "Several lists, with brain dump to steps.",
-                ) { screen = Screen.Home }
+                Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
                 Screen.Chat -> PlaceholderScreen(
                     "Chat",
                     "A Claude chat for your breaks, with memory.",

@@ -3,6 +3,8 @@ package com.jondude1.deskglass
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jondude1.deskglass.data.Checklist
+import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.Event
 import com.jondude1.deskglass.data.EventStore
 import com.jondude1.deskglass.data.Prefs
@@ -33,6 +35,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
     private val eventStore = EventStore(app)
     val events: StateFlow<List<Event>> = eventStore.events
+
+    private val checklistStore = ChecklistStore(app)
+    val checklists: StateFlow<List<Checklist>> = checklistStore.lists
+
+    fun addChecklist(name: String): String = checklistStore.addList(name)
+    fun renameChecklist(id: String, name: String) = checklistStore.renameList(id, name)
+    fun deleteChecklist(id: String) = checklistStore.deleteList(id)
+    fun addChecklistItem(listId: String, text: String) = checklistStore.addItem(listId, text)
+    fun toggleChecklistItem(listId: String, itemId: String) = checklistStore.toggleItem(listId, itemId)
+    fun deleteChecklistItem(listId: String, itemId: String) = checklistStore.deleteItem(listId, itemId)
+    fun clearDoneChecklistItems(listId: String) = checklistStore.clearDone(listId)
 
     fun saveEvent(event: Event) = eventStore.upsert(event)
     fun deleteEvent(id: String) = eventStore.delete(id)
