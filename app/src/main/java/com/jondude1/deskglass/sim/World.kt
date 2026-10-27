@@ -52,7 +52,6 @@ class Predator(val kind: String, var x: Float, var y: Float) {
     var angle = 0f
 }
 
-val GOD_POWERS = listOf("Bless", "Rain", "Spawn", "Lightning", "Quake", "Meteor", "Plague")
 
 val RACE_NAMES = mapOf(
     "Elf" to listOf("Sylvaran Court", "Aelthorn", "Lorien Glade", "Moonwhisper"),

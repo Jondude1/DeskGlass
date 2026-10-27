@@ -1943,60 +1943,50 @@ class CivSim(
         event("$text ${k.name} suffers.")
     }
 
-    /** The player's god powers. Called when a power is chosen and the map is tapped. */
-    fun usePower(name: String, x: Float, y: Float) {
-        val tx = x.coerceIn(0f, GW - 0.01f)
-        val ty = y.coerceIn(0f, GH - 0.01f)
-        val ix = tx.toInt()
-        val iy = ty.toInt()
+    private var nextDisasterAt = 0.0
+
+    /** The world's own moods sometimes lash out: bolts, quakes, meteors and plague. Never triggered by the player. */
+    private fun disasterTick() {
+        if (time < nextDisasterAt) return
+        val wild = worldAge == 6 || worldAge == 8 || worldAge == 9 || worldAge == 4
+        nextDisasterAt = time + (if (wild) 110.0 else 260.0) + rnd.nextInt(150)
+        if (time < DAY_LEN * 0.5 || villagers.size < 2) return
+        var ix = 0
+        var iy = 0
+        var found = false
+        for (attempt in 0 until 12) {
+            ix = 2 + rnd.nextInt(GW - 4)
+            iy = 2 + rnd.nextInt(GH - 4)
+            if (tiles[iy * GW + ix] != T.WATER) { found = true; break }
+        }
+        if (!found) return
         val ci = iy * GW + ix
+        val tx = ix + 0.5f
+        val ty = iy + 0.5f
         fun near(r: Float) = villagers.filter { hypot(it.x - tx, it.y - ty) <= r }
-        when (name) {
-            "Bless" -> {
-                for (v in near(4.5f)) {
-                    v.happiness = min(100f, v.happiness + 30f)
-                    v.hp = min(100f, v.hp + 40f)
-                    v.hunger = max(0f, v.hunger - 25f)
-                }
-                for (b in buildings) {
-                    if (b.type == "farm" && hypot(b.x + 0.5f - tx, b.y + 0.5f - ty) <= 5f) b.boostUntil = time + 60.0
-                }
-                fx.add(Fx("bless", tx, ty, time, 2.6f))
-                godAct("A golden light blesses the land.")
-            }
-            "Rain" -> {
-                rainUntil = max(rainUntil, time + 70.0)
-                for (i in tiles.indices) if (tiles[i] == T.BUSH && amt[i] < 3) amt[i]++
-                godAct("The sky opens and rain falls.")
-            }
-            "Spawn" -> {
-                if (tiles[ci] == T.WATER) return
-                if (villagers.size >= popCap() + 4) {
-                    addLog("The village is too crowded to welcome anyone else.")
-                    return
-                }
-                val n = spawnVillager()
-                n.x = tx
-                n.y = ty
-                fx.add(Fx("spawn", tx, ty, time, 1.8f))
-                godAct("A stranger named ${n.name} appears in a flash of light.")
-            }
-            "Lightning" -> {
+        val kind = when (worldAge) {
+            6 -> rnd.nextInt(3)
+            8 -> if (rnd.nextBoolean()) 2 else 0
+            4, 9 -> if (rnd.nextBoolean()) 3 else 0
+            else -> if (rnd.nextInt(3) == 0) 1 else 0
+        }
+        when (kind) {
+            0 -> {
                 fx.add(Fx("bolt", tx, ty, time, 0.9f))
                 if (tiles[ci] == T.FOREST) {
                     amt[ci] = 2
                     fx.add(Fx("fire", tx, ty, time, 7f))
                 }
                 for (v in near(1.8f)) {
-                    v.hp = max(5f, v.hp - 45f)
+                    v.hp = max(5f, v.hp - 35f)
                     v.happiness = max(0f, v.happiness - 10f)
                 }
-                godAct("Lightning strikes!")
+                godAct("Lightning strikes the land.")
             }
-            "Quake" -> {
+            1 -> {
                 shakeUntil = time + 1.5
                 fx.add(Fx("quake", tx, ty, time, 1.8f))
-                repeat(8) {
+                repeat(6) {
                     val ex = ix + rnd.nextInt(7) - 3
                     val ey = iy + rnd.nextInt(7) - 3
                     if (ex in 1 until GW - 1 && ey in 1 until GH - 1) {
@@ -2011,10 +2001,10 @@ class CivSim(
                 godAct("The ground shakes and splits.")
                 hitKingdom(ci, 2, "An earthquake rattles the land.")
             }
-            "Meteor" -> {
+            2 -> {
                 shakeUntil = time + 1.8
                 fx.add(Fx("meteor", tx, ty, time, 2.4f))
-                for (v in near(2.5f)) v.hp = max(1f, v.hp - 60f)
+                for (v in near(2.5f)) v.hp = max(5f, v.hp - 50f)
                 if (!occupied[ci] && tiles[ci] != T.WATER) {
                     tiles[ci] = if (age >= 2) T.ORE else T.ROCK
                     amt[ci] = 5
@@ -2023,11 +2013,11 @@ class CivSim(
                 mark("A meteor fell from the sky.")
                 hitKingdom(ci, 3, "A meteor strikes.")
             }
-            "Plague" -> {
+            else -> {
                 plagueUntil = time + 150.0
                 fx.add(Fx("plague", tx, ty, time, 5f))
                 for (v in near(5.5f)) {
-                    v.hp = max(5f, v.hp - 30f)
+                    v.hp = max(5f, v.hp - 25f)
                     v.happiness = max(0f, v.happiness - 12f)
                 }
                 godAct("A sickly green cloud drifts over the land.")
@@ -2177,6 +2167,7 @@ class CivSim(
 
         ageTick(dt)
         eventTick()
+        disasterTick()
         worldTick(dt)
         schedule()
     }

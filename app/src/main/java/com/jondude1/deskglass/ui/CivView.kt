@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -54,7 +55,6 @@ import com.jondude1.deskglass.MainViewModel
 import com.jondude1.deskglass.sim.CivSim
 import com.jondude1.deskglass.sim.GH
 import com.jondude1.deskglass.sim.GW
-import com.jondude1.deskglass.sim.GOD_POWERS
 import com.jondude1.deskglass.sim.T
 import kotlin.math.max
 import kotlin.math.min
@@ -594,7 +594,7 @@ private fun DrawScope.drawWorld(
         drawLine(sw, Offset(cx + ts * 0.35f, cy - ts * 0.7f), Offset(cx - ts * 0.35f, cy - ts * 0.1f), strokeWidth = ps * 1.3f)
     }
 
-    // god power effects
+    // effects (bolts, meteors, fires, clashes, arrows)
     for (f in sim.fx.toList()) {
         val age = (sim.time - f.born).toFloat()
         val p = (age / f.life).coerceIn(0f, 1f)
@@ -779,6 +779,20 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // drifting smoke from fires and forges
+    for (b in sim.buildings) {
+        if (b.type != "campfire" && b.type != "smelter") continue
+        val bx = ox + (b.x + 0.5f) * ts
+        val by = oy + (b.y + 0.2f) * ts
+        for (k in 0 until 5) {
+            val ph = ((t * 0.45f + k * 0.2f + b.x * 0.13f) % 1f)
+            val rise = ph * ts * 2.6f
+            val sway = kotlin.math.sin(t * 1.3f + k * 2f + b.y) * ts * 0.18f * ph
+            val a = (1f - ph) * 0.32f
+            drawCircle(Color(0xFFD8D4D0).copy(alpha = a), radius = ts * (0.10f + 0.16f * ph), center = Offset(bx + sway + ph * ts * 0.3f, by - rise))
+        }
+    }
+
     // evening and night
     if (dark > 0f) {
         drawRect(Color(0xFF0A1030).copy(alpha = dark))
@@ -795,6 +809,22 @@ private fun DrawScope.drawWorld(
                 radius = ts * 5.5f * flick,
                 center = c,
             )
+        }
+        for (b in sim.buildings) {
+            if (b.type != "hut") continue
+            val wx = ox + (b.x + 0.5f) * ts
+            val wy = oy + (b.y + 0.62f) * ts
+            drawCircle(Color(0xFFFFC857).copy(alpha = 0.22f * dark), radius = ts * 0.55f, center = Offset(wx, wy))
+            drawRect(Color(0xFFFFE08A).copy(alpha = 0.9f * min(1f, dark * 1.6f)), Offset(wx - ps * 1.5f, wy - ps * 1.5f), Size(ps * 3f, ps * 3f))
+        }
+        for (p in sim.predators) {
+            val ex = ox + p.x * ts
+            val ey = oy + (p.y - 0.1f) * ts
+            val blink = if (kotlin.math.sin(t * 1.7f + p.x) > 0.96f) 0f else 1f
+            val ec = Color(0xFFFF3B2F).copy(alpha = 0.95f * blink)
+            drawCircle(Color(0xFFFF3B2F).copy(alpha = 0.18f * blink), radius = ts * 0.4f, center = Offset(ex, ey))
+            drawRect(ec, Offset(ex - ts * 0.16f, ey), Size(ps * 1.6f, ps * 1.6f))
+            drawRect(ec, Offset(ex + ts * 0.08f, ey), Size(ps * 1.6f, ps * 1.6f))
         }
         for (i in 0 until 16) {
             val fx = ox + ((cellHash(i, 3) % GW) + 0.5f + kotlin.math.sin(t * 0.6f + i) * 1.4f) * ts
@@ -1055,8 +1085,11 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 })
             }
         })
-        Row(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.weight(0.68f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+        val narrow = maxWidth < 640.dp
+        val pad = if (narrow) 12.dp else 24.dp
+        val mapBlock: @Composable (Modifier) -> Unit = { mod ->
+            Column(mod, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 GlassCard(Modifier.weight(1f).fillMaxWidth(), corner = 24.dp) {
                     Box(Modifier.fillMaxSize()) {
                         CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
@@ -1065,7 +1098,9 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     }
                 }
             }
-            Column(Modifier.weight(0.32f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        }
+        val panelBlock: @Composable (Modifier) -> Unit = { mod ->
+            Column(mod, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(sim.ageName(), color = Glass.Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 val wa = sim.ageInfo()
                 Text(wa.name, color = Color(wa.tint), fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -1131,6 +1166,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                         }
                     }
                     Text("NEWS", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))
+                    if (sim.log.isEmpty()) Text("All is quiet. Nothing to report yet.", color = Glass.InkFaint, fontSize = 13.sp)
                     for (line in sim.log.takeLast(12).reversed()) {
                         Text("• $line", color = newsTint(line), fontSize = 13.sp)
                     }
@@ -1155,6 +1191,18 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     }, filled = true)
                 }
             }
+        }
+        if (narrow) {
+            Column(Modifier.fillMaxSize().padding(start = pad, end = pad, bottom = pad), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                mapBlock(Modifier.weight(0.42f).fillMaxWidth())
+                panelBlock(Modifier.weight(0.58f).fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(start = pad, end = pad, bottom = pad), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                mapBlock(Modifier.weight(0.68f).fillMaxHeight())
+                panelBlock(Modifier.weight(0.32f).fillMaxHeight())
+            }
+        }
         }
     }
 }
