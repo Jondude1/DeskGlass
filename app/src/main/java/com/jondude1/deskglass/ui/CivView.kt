@@ -117,12 +117,6 @@ private fun DrawScope.img(
 private fun cellHash(x: Int, y: Int): Int = ((x * 73856093) xor (y * 19349663)) and 0x7fffffff
 
 private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
-    drawOval(Color.Black.copy(alpha = 0.22f), topLeft = Offset(cx - w / 2f, cy - h / 2f), size = androidx.compose.ui.geometry.Size(w, h))
-}
-
-private fun cellHash(x: Int, y: Int): Int = ((x * 73856093) xor (y * 19349663)) and 0x7fffffff
-
-private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
     drawOval(Color.Black.copy(alpha = 0.22f), topLeft = Offset(cx - w / 2f, cy - h / 2f), size = Size(w, h))
 }
 
