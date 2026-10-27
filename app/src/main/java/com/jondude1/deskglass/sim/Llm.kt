@@ -31,7 +31,7 @@ object Llm {
         try {
             c.requestMethod = "POST"
             c.connectTimeout = 6_000
-            c.readTimeout = 90_000
+            c.readTimeout = 40_000
             c.doOutput = true
             c.setRequestProperty("content-type", "application/json")
             c.outputStream.use { it.write(body.toString().toByteArray()) }

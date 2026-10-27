@@ -128,6 +128,8 @@ class Villager(val id: Int, val name: String, var job: String, val personaIdx: I
     val memories = ArrayList<String>()
     val recent = ArrayList<String>()
     val affinity = HashMap<Int, Int>()
+    val said = ArrayList<String>()
+    var replyTo: Villager? = null
 
     fun remember(text: String) {
         memories.add(text)
@@ -138,7 +140,7 @@ class Villager(val id: Int, val name: String, var job: String, val personaIdx: I
 /** Whatever answers the villagers' questions: the local model, or Claude through the saved key. */
 class Brain(val label: String, val gapSeconds: Double, val ask: (system: String, user: String) -> String)
 
-private class Decision(val villagerId: Int, val text: String?, val error: String?)
+private class Decision(val villagerId: Int, val text: String?, val error: String?, val reqId: Int = 0, val repaired: Boolean = false)
 
 private val NAMES = listOf(
     "Mira", "Tobin", "Edda", "Rook", "Wren", "Bram", "Isla", "Finn", "Odette", "Cass", "Hugo", "Nell",
@@ -196,6 +198,15 @@ class CivSim(
     private var bushClock = 0f
     private var nextId = 1
     private var godMsg = ""
+    private var reqSeq = 0
+    private var curReq = 0
+    private var sentAt = 0.0
+    private var okCount = 0
+    private var fixCount = 0
+    private var failCount = 0
+    private var plagueUntil = 0.0
+    private val problemAt = HashMap<String, Long>()
+    private val problemSkipped = HashMap<String, Int>()
     private var godUntil = 0.0
     private var lastNarrateAt = 0L
     private var lastErrorLog = 0L
@@ -663,9 +674,10 @@ class CivSim(
             v.action == "tell_story" -> {
                 v.phase = "working"
                 v.workLeft = 9f
-                val story = STORIES[rnd.nextInt(STORIES.size)]
-                v.say = story.take(90)
+                val story = Speech.clean(storyFor(), 90)
+                v.say = if (isChild(v)) Speech.kidify(story) else story
                 v.sayLeft = 8f
+                noteSaid(v, story)
                 addLog("${v.name} tells a story by the fire.")
                 narrate("${v.name} tells a story by the fire")
                 val listeners = villagers.filter {
@@ -679,8 +691,10 @@ class CivSim(
                 if (listeners.isNotEmpty()) {
                     val l = listeners[rnd.nextInt(listeners.size)]
                     l.replyIn = 3f
-                    l.replyText = listOf("Ooh, tell it again!", "Ha! I never heard that one.", "Is that really true?", "Lovely tale.")[rnd.nextInt(4)]
-                    l.remember("${v.name} told a story by the fire")
+                    l.replyTo = v
+                    l.replyText = replyTo(l, v, story)
+                    l.remember("${v.name} told a story: ${story.take(50)}")
+                    v.remember("told ${l.name} a story")
                 }
                 v.happiness = min(100f, v.happiness + 5f)
             }
@@ -689,6 +703,8 @@ class CivSim(
                 if (o != null) {
                     v.say = v.talkMsg.take(90)
                     v.sayLeft = 7f
+                    noteSaid(v, v.talkMsg)
+                    o.replyTo = v
                     o.heard.add("${v.name}: ${v.talkMsg}")
                     while (o.heard.size > 3) o.heard.removeAt(0)
                     addLog("${v.name} to ${o.name}: ${v.talkMsg}")
@@ -706,11 +722,11 @@ class CivSim(
                         o.affinity[v.id] = (o.affinity[v.id] ?: 0) + 1
                         v.happiness = min(100f, v.happiness + 4f)
                         o.happiness = min(100f, o.happiness + 4f)
-                        o.replyText = o.persona.lines[rnd.nextInt(o.persona.lines.size)]
-                        o.remember("${v.name} chatted with me")
+                        o.replyText = replyTo(o, v, v.talkMsg)
+                        o.remember("${v.name} said: ${v.talkMsg.take(50)}")
                     }
                     o.replyIn = 2.5f
-                    v.remember("talked with ${o.name}")
+                    v.remember("told ${o.name}: ${v.talkMsg.take(40)}")
                 }
                 finish(v)
             }
@@ -984,15 +1000,6 @@ class CivSim(
         else -> "Age: Iron. Blacksmiths forge iron tools. The village is a real town now."
     }
 
-    private fun actionsNote(): String {
-        val a = ArrayList<String>()
-        a.addAll(listOf("gather_wood", "gather_stone", "gather_food", "fish", "hunt", "explore", "tell_story", "huddle"))
-        a.addAll(listOf("build_hut", "build_campfire", "eat", "sleep", "talk", "wander"))
-        if (age >= 1) a.addAll(listOf("tend_farm", "build_farm"))
-        if (age >= 2) a.addAll(listOf("mine_ore", "smelt", "build_smelter"))
-        return a.joinToString(", ")
-    }
-
     // ---- brains ----
 
     private fun alert() = time < alertUntil
@@ -1027,15 +1034,89 @@ class CivSim(
         return others.maxByOrNull { (v.affinity[it.id] ?: 0) * 2 + rnd.nextInt(5) }
     }
 
+    private fun factLines(v: Villager): List<String> {
+        val out = ArrayList<String>()
+        val n = villagers.size
+        if (food <= n / 2) out.add("Only $food food left for $n of us.")
+        else if (food >= n * 2) out.add("The stores hold $food food. We'll manage.")
+        if (wood < 4) out.add("We're down to $wood wood.")
+        if (stone < 2) out.add("Barely any stone, just $stone.")
+        if (v.hunger > 70f) out.add("My stomach is growling. I need to eat.")
+        if (v.energy < 30f) out.add("I could sleep on my feet.")
+        if (alert()) out.add("Those wolves have everyone on edge.")
+        if (raining()) out.add("This rain slows the ${v.job.lowercase()} work.")
+        if (weatherNow().startsWith("cold")) out.add("The cold gets into my bones.")
+        if (partOfDay() == "evening") out.add("The light is fading. Time to wind down.")
+        if (isNight()) out.add("Hard to see anything at night.")
+        wars().firstOrNull()?.let { out.add("Word is ${it.first.name} is at war with ${it.second.name}.") }
+        if (time < plagueUntil) out.add("People are falling sick. Keep your distance.")
+        history(5).lastOrNull()?.let { out.add("I keep thinking about it: ${it.take(60)}") }
+        childrenOf(v).firstOrNull()?.let { out.add("${it.name} is ${ageYears(it)} already. They grow fast.") }
+        v.memories.lastOrNull()?.let { out.add("I keep remembering that ${it.take(50)}.") }
+        nearby(v).firstOrNull()?.let { out.add("${it.name} is busy ${doing(it)}.") }
+        if (worldAge != 0) out.add("The ${ageInfo().name.lowercase()} is on everyone's mind.")
+        if (age > 0) out.add("${count("hut")} huts and ${count("farm")} farms. We've come far.")
+        if (rnd.nextInt(4) == 0) out.addAll(JOB_LINES[v.job] ?: v.persona.lines)
+        if (out.isEmpty()) out.addAll(v.persona.lines)
+        return out
+    }
+
+    private fun kidLines(v: Villager): List<String> {
+        val out = ArrayList<String>()
+        if (v.hunger > 60f) out.add("I'm hungry!")
+        if (v.energy < 35f || isNight()) out.add("I'm sleepy.")
+        if (raining()) out.add("Rain! Splash!")
+        if (alert()) out.add("I don't like the wolves.")
+        if (weatherNow().startsWith("cold")) out.add("Brr, it's cold!")
+        v.parents.split(" & ").firstOrNull()?.takeIf { it.isNotBlank() }?.let { out.add("Where is $it?") }
+        nearby(v).firstOrNull()?.let { out.add("Look, ${it.name} is ${doing(it)}!") }
+        if (food > 0) out.add("We have $food food!")
+        out.add("Play with me!")
+        return out
+    }
+
     private fun lineFor(v: Villager): String {
-        if (alert() && rnd.nextBoolean()) {
-            return listOf("Did you hear those wolves?", "Stay close to the fire.", "Something is out there...")[rnd.nextInt(3)]
+        val pool = if (isChild(v)) kidLines(v) else factLines(v)
+        val fresh = pool.filter { l -> v.said.none { Speech.similar(it, l) } }
+        val use = fresh.ifEmpty { pool }
+        return use[rnd.nextInt(use.size)]
+    }
+
+    /** A reply that answers what was actually said, using real state. */
+    private fun replyTo(o: Villager, from: Villager, msg: String): String {
+        val m = msg.lowercase()
+        val w = wars().firstOrNull()
+        val r = when {
+            m.contains("food") || m.contains("hungry") || m.contains("berr") || m.contains("stomach") || m.contains("eat") ->
+                if (food > villagers.size) "Aye, ${from.name}. $food food in the stores, we're fine."
+                else "Aye, ${from.name}. Only $food left. We should gather more."
+            m.contains("wolf") -> if (alert()) "I heard them too, ${from.name}. Stay near the fire." else "The wolves have gone quiet, ${from.name}. For now."
+            m.contains("rain") || m.contains("wet") ->
+                if (raining()) "It won't stop, ${from.name}." else "At least the rain has stopped."
+            m.contains("wood") || m.contains("timber") -> "We have $wood wood right now, ${from.name}."
+            m.contains("stone") || m.contains("rock") -> "Stone stands at $stone."
+            m.contains("tired") || m.contains("sleep") ->
+                if (o.energy < 40f) "Me too. My energy is low." else "Rest well, ${from.name}."
+            m.contains("baby") || m.contains("born") || m.contains("child") -> "Good news for the village, ${from.name}."
+            (m.contains("war") || m.contains("raid") || m.contains("kingdom")) && w != null ->
+                "Keep the village safe, ${from.name}. ${w.first.name} is fighting ${w.second.name}."
+            m.contains("?") -> "I'm not sure, ${from.name}. I'm busy ${doing(o)}."
+            else -> "I hear you, ${from.name}. " + lineFor(o)
         }
-        if (raining() && rnd.nextInt(3) == 0) {
-            return listOf("This rain is relentless.", "Good weather for the farms, at least.", "My boots are soaked.")[rnd.nextInt(3)]
+        val out = if (Speech.similar(r, msg)) lineFor(o) else r
+        return if (isChild(o)) Speech.kidify(out) else out
+    }
+
+    /** Stories and gossip come from things that really happened. */
+    private fun storyFor(): String {
+        val h = history(8)
+        if (h.isNotEmpty()) {
+            val t = h[rnd.nextInt(h.size)].take(70)
+            return listOf("Gather round. $t", "Remember when: $t", "They'll tell this one for years: $t")[rnd.nextInt(3)]
         }
-        val pool = if (rnd.nextBoolean()) (JOB_LINES[v.job] ?: v.persona.lines) else v.persona.lines
-        return pool[rnd.nextInt(pool.size)]
+        val l = log.takeLast(6)
+        if (l.isNotEmpty()) return "Did you hear? " + l[rnd.nextInt(l.size)].take(70)
+        return STORIES[rnd.nextInt(STORIES.size)]
     }
 
     private fun ruleDecision(v: Villager): Pair<String, String> {
@@ -1112,12 +1193,17 @@ class CivSim(
                 action = "wander"
             }
         }
-        if (thought.isNotBlank()) v.thought = thought.take(100)
-        if (action == "talk") v.talkMsg = say.ifBlank { lineFor(v) }.take(90)
-        else if (say.isNotBlank()) {
-            v.say = say.take(90)
+        val thoughtClean = Speech.clean(thought, 100)
+        if (thoughtClean.isNotBlank()) v.thought = thoughtClean
+        var sayClean = Speech.clean(say, 90)
+        if (isChild(v)) sayClean = Speech.kidify(sayClean)
+        if (sayClean.isNotBlank() && v.said.any { Speech.similar(it, sayClean) }) sayClean = ""
+        if (action == "talk") v.talkMsg = sayClean.ifBlank { lineFor(v) }
+        else if (sayClean.isNotBlank()) {
+            v.say = sayClean
             v.sayLeft = 7f
-            addLog("${v.name}: ${say.take(90)}")
+            noteSaid(v, sayClean)
+            addLog("${v.name}: $sayClean")
         }
         var ok = action in ACTIONS && startAction(v, action, target)
         if (!ok) {
@@ -1140,108 +1226,198 @@ class CivSim(
 
     private fun others(): List<Villager> = villagers
 
+    private fun seasonName(): String = when (java.time.LocalDate.now().monthValue) {
+        12, 1, 2 -> "winter"
+        3, 4, 5 -> "spring"
+        6, 7, 8 -> "summer"
+        else -> "autumn"
+    }
+
+    private fun weatherNow(): String = when {
+        raining() -> "raining"
+        outsideSnow || worldAge == 7 || seasonName() == "winter" -> "cold, with snow about"
+        else -> "dry"
+    }
+
+    private fun doing(o: Villager) = if (o.action.isEmpty()) "idle" else o.action.replace('_', ' ')
+    private fun childrenOf(v: Villager): List<Villager> = villagers.filter { it !== v && it.parents.contains(v.name) }
+    private fun nearby(v: Villager, r: Float = 6f): List<Villager> =
+        villagers.filter { it !== v && hypot(it.x - v.x, it.y - v.y) <= r }
+
+    private fun noteSaid(v: Villager, text: String) {
+        v.said.add(text)
+        while (v.said.size > 8) v.said.removeAt(0)
+    }
+
+    private fun history(n: Int): List<String> = chronicle.takeLast(n).map { it.substringAfter(": ") }
+
+    private fun allowedActions(): List<String> {
+        val a = arrayListOf("gather_wood", "gather_stone", "gather_food", "fish", "hunt", "explore", "tell_story", "huddle", "sleep", "talk", "wander")
+        if (food > 0) a.add("eat")
+        if (wood >= 6 && stone >= 2) a.add("build_hut")
+        if (stone >= 3 && count("campfire") < 3) a.add("build_campfire")
+        if (age >= 1 && wood >= 4) a.add("build_farm")
+        if (age >= 1 && count("farm") > 0) a.add("tend_farm")
+        if (age >= 2) {
+            a.add("mine_ore")
+            if (ore >= 2 && wood >= 1 && count("smelter") > 0) a.add("smelt")
+            if (wood >= 4 && stone >= 6 && count("smelter") < 3) a.add("build_smelter")
+        }
+        return a
+    }
+
     private fun buildPrompt(v: Villager): String {
+        val kid = isChild(v)
         val sb = StringBuilder()
-        sb.append("Day ${day()}, ${partOfDay()}.")
-        if (raining()) sb.append(" It is raining.")
-        if (alert()) sb.append(" WOLVES are howling nearby, the village is on alert.")
-        if (festival()) sb.append(" The village is holding a feast by the fire.")
-        sb.append("\n")
-        sb.append("You are ${v.name}, the village ${v.job}, ${ageYears(v)} years old. ${JOB_BLURB[v.job] ?: ""}\n")
+        sb.append("FACTS. Mention only things listed here. Never invent buildings, people, resources or events.\n")
+        sb.append("Time: day ${day()}, ${partOfDay()}, ${seasonName()}. Weather: ${weatherNow()}.\n")
+        val ev = ArrayList<String>()
+        if (alert()) ev.add("wolves are howling near the village")
+        if (festival()) ev.add("a feast is being held by the fire")
+        if (time < plagueUntil) ev.add("a sickness is spreading")
+        wars().firstOrNull()?.let { ev.add("${it.first.name} is at war with ${it.second.name}") }
+        sb.append("Happening now: " + (if (ev.isEmpty()) "nothing unusual" else ev.joinToString("; ")) + ". ${ageInfo().name}: ${ageInfo().blurb}\n")
+        sb.append("You are ${v.name}, ${if (kid) "a small child" else "the ${v.job.lowercase()}"} of Hearthvale, ${ageYears(v)} years old. ${JOB_BLURB[v.job] ?: ""}\n")
         sb.append(techNote() + "\n")
-        sb.append(worldNote())
         sb.append("Personality: ${v.trait}. You ${v.persona.voice}. Your dream: ${v.persona.dream}.\n")
-        sb.append("Mood: ${mood(v)}. Hunger ${v.hunger.toInt()}/100 (eat above 60). Energy ${v.energy.toInt()}/100 (sleep when low or at night).\n")
+        sb.append("Body and mood: hunger ${v.hunger.toInt()}/100 (eat above 60), energy ${v.energy.toInt()}/100, health ${v.hp.toInt()}/100, feeling ${mood(v)}.\n")
+        v.recent.lastOrNull()?.let { sb.append("You just did: ${it.replace('_', ' ')}.\n") }
+        val kids = childrenOf(v)
+        val fam = ArrayList<String>()
+        if (v.parents.isNotBlank()) fam.add("your parents are ${v.parents}")
+        if (kids.isNotEmpty()) fam.add("your children: " + kids.joinToString(", ") { "${it.name} (${ageYears(it)})" })
+        if (fam.isNotEmpty()) sb.append("Family: " + fam.joinToString("; ") + ".\n")
         sb.append("Village stock: wood $wood, stone $stone, food $food")
         if (age >= 2) sb.append(", ore $ore, metal $metal")
-        sb.append(". ")
-        sb.append("Buildings: ${count("hut")} ${if (age == 0) "tents" else "huts"}, ")
+        sb.append(". Buildings: ${count("hut")} ${if (age == 0) "tents" else "huts"}, ")
         if (age >= 1) sb.append("${count("farm")} farms, ")
         if (age >= 2) sb.append("${count("smelter")} forges, ")
-        sb.append("${count("campfire")} campfires. ")
-        sb.append("${villagers.size} villagers (${villagers.count { isChild(it) }} children).\n")
-        val others = villagers.filter { it !== v }
-        if (others.isNotEmpty()) {
-            sb.append("Others: " + others.joinToString(", ") {
-                "${it.name} the ${it.job} (${if (it.action.isEmpty()) "idle" else it.action.replace('_', ' ')})"
+        sb.append("${count("campfire")} campfires. ${villagers.size} villagers (${villagers.count { isChild(it) }} children).\n")
+        val near = nearby(v)
+        if (near.isNotEmpty()) {
+            sb.append("Nearby: " + near.joinToString("; ") {
+                "${it.name} the ${it.job.lowercase()} (${doing(it)}${if (it.say.isNotBlank()) ", just said \"${it.say.take(50)}\"" else ""})"
             } + "\n")
-            val close = others.filter { (v.affinity[it.id] ?: 0) >= 2 }.joinToString(", ") { it.name }
-            val rivals = others.filter { (v.affinity[it.id] ?: 0) <= -2 }.joinToString(", ") { it.name }
-            if (close.isNotEmpty()) sb.append("Your friends: $close.\n")
-            if (rivals.isNotEmpty()) sb.append("You don't get along with: $rivals.\n")
+        } else {
+            sb.append("Nobody is close to you right now.\n")
         }
+        val far = villagers.filter { it !== v && it !in near }
+        if (far.isNotEmpty()) sb.append("Elsewhere: " + far.joinToString(", ") { "${it.name} (${doing(it)})" } + "\n")
+        val close = villagers.filter { it !== v && (v.affinity[it.id] ?: 0) >= 2 }.joinToString(", ") { it.name }
+        val rivals = villagers.filter { it !== v && (v.affinity[it.id] ?: 0) <= -2 }.joinToString(", ") { it.name }
+        if (close.isNotEmpty()) sb.append("Your friends: $close.\n")
+        if (rivals.isNotEmpty()) sb.append("You don't get along with: $rivals.\n")
         if (v.memories.isNotEmpty()) sb.append("Your recent memories: " + v.memories.joinToString("; ") + "\n")
         if (v.heard.isNotEmpty()) sb.append("You recently heard: " + v.heard.joinToString(" | ") + "\n")
         if (v.recent.isNotEmpty()) sb.append("Your last actions: " + v.recent.joinToString(", ") + " (vary what you do).\n")
+        if (v.said.isNotEmpty()) sb.append("Things you already said (do not repeat): " + v.said.takeLast(3).joinToString(" | ") + "\n")
+        val h = history(3)
+        if (h.isNotEmpty()) sb.append("Village history: " + h.joinToString(" | ") + "\n")
         val recent = log.takeLast(4)
-        if (recent.isNotEmpty()) sb.append("Recent village news: " + recent.joinToString(" | ") + "\n")
+        if (recent.isNotEmpty()) sb.append("Recent news: " + recent.joinToString(" | ") + "\n")
+        sb.append(worldNote())
         if (godMsg.isNotBlank() && time < godUntil) {
             sb.append("A booming voice from the sky said to everyone: \"$godMsg\" (consider it seriously).\n")
         }
-        sb.append("Actions you can use now: ${actionsNote()}.\n")
-        sb.append("What do you do next? Stay in character.")
+        sb.append("Actions you can use now: ${allowedActions().joinToString(", ")}.\n")
+        if (kid) sb.append("You are a small child: use very short, simple words, at most 8 words, about play, food, family or what you see.\n")
+        sb.append("What do you do next? Reply with one JSON object only. Your 'say' must rely only on the facts above.")
         return sb.toString()
+    }
+
+    private fun shortPrompt(v: Villager): String =
+        "You are ${v.name}, ${if (isChild(v)) "a child" else "a ${v.job.lowercase()}"}. ${partOfDay()}. Hunger ${v.hunger.toInt()}, energy ${v.energy.toInt()}. " +
+            "Stock: wood $wood, stone $stone, food $food. Pick one action from: ${allowedActions().joinToString(", ")}. JSON only."
+
+    private fun logProblem(key: String, msg: String) {
+        val now = System.currentTimeMillis()
+        if (now - (problemAt[key] ?: 0L) < 120_000L) {
+            problemSkipped[key] = (problemSkipped[key] ?: 0) + 1
+            return
+        }
+        problemAt[key] = now
+        val skipped = problemSkipped.remove(key) ?: 0
+        onError(if (skipped > 0) "$msg (+$skipped similar)" else msg)
+    }
+
+    private fun brainStatus(base: String) {
+        brain = base + " · $okCount ok" + (if (fixCount > 0) ", $fixCount repaired" else "") + (if (failCount > 0) ", $failCount failed" else "")
     }
 
     private fun send(v: Villager) {
         val b = brainProvider() ?: return
         val prompt = buildPrompt(v)
+        val short = shortPrompt(v)
         v.waiting = true
         inFlight = true
+        sentAt = time
+        val req = ++reqSeq
+        curReq = req
         brain = "thinking…"
         val id = v.id
         scope.launch(Dispatchers.IO) {
-            try {
-                results.add(Decision(id, b.ask(SYSTEM, prompt), null))
-            } catch (e: Exception) {
-                results.add(Decision(id, null, "${e.javaClass.simpleName}: ${e.message}"))
+            var text: String? = null
+            var err: String? = null
+            var repaired = false
+            for (attempt in 0..1) {
+                try {
+                    val t = b.ask(if (attempt == 0) SYSTEM else SYSTEM_SHORT, if (attempt == 0) prompt else short)
+                    val p = Speech.parse(t)
+                    if (p != null) {
+                        text = t
+                        repaired = p.repaired || attempt > 0
+                        break
+                    }
+                    err = "unparsable reply: ${t.take(100)}"
+                } catch (e: Exception) {
+                    err = "${e.javaClass.simpleName}: ${e.message}"
+                }
             }
+            results.add(Decision(id, text, err, req, repaired))
         }
     }
 
     private fun drain() {
+        if (inFlight && time - sentAt > 100.0) {
+            inFlight = false
+            curReq = ++reqSeq
+            for (x in villagers) x.waiting = false
+            failCount++
+            retryAt = time + 30.0
+            brainStatus("model too slow — autopilot")
+            logProblem("slow", "Village model took too long; villagers use autopilot for a moment.")
+        }
         while (true) {
             val r = results.poll() ?: break
+            if (r.reqId != curReq) continue
             inFlight = false
             nextAskAt = time + (brainProvider()?.gapSeconds ?: 0.0)
             val v = villagers.firstOrNull { it.id == r.villagerId }
-            if (r.error != null) {
-                brain = "offline — using autopilot"
+            if (r.text == null) {
+                failCount++
                 retryAt = time + 45.0
-                val now = System.currentTimeMillis()
-                if (now - lastErrorLog > 120_000L) {
-                    lastErrorLog = now
-                    onError("Village model call failed: ${r.error}")
-                }
+                brainStatus("offline — using autopilot")
+                logProblem("call", "Village model call failed: ${r.error}")
                 v?.waiting = false
                 continue
             }
             try {
-                val text = r.text.orEmpty()
-                val a = text.indexOf('{')
-                val b = text.lastIndexOf('}')
-                require(a >= 0 && b > a) { "no JSON in: ${text.take(120)}" }
-                val o = JSONObject(text.substring(a, b + 1))
-                brain = (brainProvider()?.label ?: "model") + " online"
+                val p = Speech.parse(r.text) ?: throw IllegalStateException("no usable JSON")
+                okCount++
+                if (r.repaired) fixCount++
+                brainStatus((brainProvider()?.label ?: "model") + " online")
                 if (v != null && v.phase == "idle") {
-                    applyDecision(
-                        v,
-                        o.optString("action").trim().lowercase().replace(' ', '_'),
-                        o.optString("target"),
-                        o.optString("say"),
-                        o.optString("thought"),
-                    )
+                    var act = p.action.trim().lowercase().replace(' ', '_').replace('-', '_')
+                    if (act !in ACTIONS) act = ACTIONS.firstOrNull { act.length > 3 && (act.contains(it) || it.contains(act)) } ?: act
+                    applyDecision(v, act, p.target, p.say, p.thought)
                 } else if (v != null) {
                     v.waiting = false
                 }
             } catch (e: Exception) {
-                brain = "model answered oddly — using autopilot"
+                failCount++
+                brainStatus("model answered oddly — autopilot")
                 v?.waiting = false
-                val now = System.currentTimeMillis()
-                if (now - lastErrorLog > 120_000L) {
-                    lastErrorLog = now
-                    onError("Village model reply not understood: ${e.message}")
-                }
+                logProblem("parse", "Village model reply not understood: ${e.message}")
             }
         }
     }
@@ -1682,6 +1858,7 @@ class CivSim(
                 hitKingdom(ci, 3, "A meteor strikes.")
             }
             "Plague" -> {
+                plagueUntil = time + 150.0
                 fx.add(Fx("plague", tx, ty, time, 5f))
                 for (v in near(5.5f)) {
                     v.hp = max(5f, v.hp - 30f)
@@ -1857,9 +2034,20 @@ class CivSim(
         if (v.replyIn > 0f) {
             v.replyIn -= dt
             if (v.replyIn <= 0f && v.replyText.isNotBlank()) {
-                v.say = v.replyText.take(90)
+                val txt = Speech.clean(v.replyText, 90)
+                v.say = txt
                 v.sayLeft = 6f
+                noteSaid(v, txt)
+                val to = v.replyTo
+                if (to != null) {
+                    to.heard.add("${v.name}: $txt")
+                    while (to.heard.size > 3) to.heard.removeAt(0)
+                    to.remember("${v.name} answered: ${txt.take(50)}")
+                    v.remember("answered ${to.name}: ${txt.take(40)}")
+                    addLog("${v.name} to ${to.name}: $txt")
+                }
                 v.replyText = ""
+                v.replyTo = null
             }
         }
         when (v.phase) {
@@ -2019,6 +2207,8 @@ class CivSim(
         private const val SYSTEM = """You play one villager in a small pixel-art village, as a distinct character with a job, a personality, a way of speaking and a dream. Reply with ONLY a JSON object, no other text:
 {"thought": "<your private thought, first person, under 14 words, in your voice>", "action": "<one action>", "target": "<villager name, only for talk>", "say": "<one short sentence you say aloud in your own voice, or empty>"}
 Actions: gather_wood, gather_stone, gather_food (berries), fish (at the lake), hunt (game in the forest, hunter-gatherers' best food), tend_farm (needs a farm, Farming Age on), explore (scouting far away), tell_story (at the fire, lifts everyone's spirits), huddle (stay by the fire), build_hut (6 wood + 2 stone), build_farm (4 wood, Farming Age on), build_campfire (3 stone), mine_ore (Bronze Age on), smelt (2 ore + 1 wood at a forge, Bronze Age on), build_smelter (4 wood + 6 stone, Bronze Age on), eat (needs food in stock), sleep, talk (set target and say), wander. Use only the actions listed as available to you in the message.
-Mostly do the work of your job, but react to your needs, the weather, wolves, news and what others say. Talk about what you have seen, feel or remember, with opinions and feelings. Never repeat a line or an action you just did, and vary your sentences. Stay alive: eat when hungry, sleep when tired or at night."""
+Mostly do the work of your job, but react to your needs, the weather, wolves, news and what others say. Talk about what you have seen, feel or remember, with opinions and feelings. Never repeat a line or an action you just did, and vary your sentences. Stay alive: eat when hungry, sleep when tired or at night.
+Speak only about facts given in the message: your needs, the stock, the weather, people nearby and what they said, family, village history and news. Never invent buildings, people, resources or events. Answer what others actually said to you. If you are a child, use very short, simple words."""
+        private const val SYSTEM_SHORT = """Reply with ONLY a JSON object: {"thought": "", "action": "<one allowed action>", "target": "", "say": "<one short sentence using only the facts given, or empty>"}"""
     }
 }
