@@ -200,30 +200,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val civ = CivSim(java.io.File(app.filesDir, "village.json"), viewModelScope) { civBrain() }
 
-    /** The local model if one is set, otherwise Claude through the saved API key. */
+    /** Only your own local model answers for the villagers. */
     private fun civBrain(): Brain? {
         val url = prefs.civUrl
         val model = prefs.civModel
-        if (url.isNotBlank() && model.isNotBlank()) {
-            return Brain("local model", 1.0) { sys, user -> Llm.chat(url, model, sys, user) }
-        }
-        val key = prefs.apiKey
-        if (key.isBlank()) return null
-        val fast = prefs.fastModel
-        return Brain("Claude", 5.0) { sys, user ->
-            val body = JSONObject()
-                .put("model", fast)
-                .put("max_tokens", 300)
-                .put("system", sys)
-                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", user)))
-            val blocks = ClaudeApi.call(key, body).getJSONArray("content")
-            val sb = StringBuilder()
-            for (i in 0 until blocks.length()) {
-                val b = blocks.getJSONObject(i)
-                if (b.getString("type") == "text") sb.append(b.getString("text"))
-            }
-            sb.toString().trim()
-        }
+        if (url.isBlank() || model.isBlank()) return null
+        return Brain("local model", 1.0) { sys, user -> Llm.chat(url, model, sys, user) }
     }
 
     private val _narration = MutableStateFlow<String?>(null)

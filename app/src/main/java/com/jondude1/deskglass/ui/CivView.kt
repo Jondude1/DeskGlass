@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -119,6 +120,12 @@ private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
     drawOval(Color.Black.copy(alpha = 0.22f), topLeft = Offset(cx - w / 2f, cy - h / 2f), size = androidx.compose.ui.geometry.Size(w, h))
 }
 
+private fun cellHash(x: Int, y: Int): Int = ((x * 73856093) xor (y * 19349663)) and 0x7fffffff
+
+private fun DrawScope.shadow(cx: Float, cy: Float, w: Float, h: Float) {
+    drawOval(Color.Black.copy(alpha = 0.22f), topLeft = Offset(cx - w / 2f, cy - h / 2f), size = Size(w, h))
+}
+
 private fun DrawScope.drawWorld(
     sim: CivSim, art: CivArt, cover: Boolean, labels: Boolean,
     textPaint: Paint, bubblePaint: Paint, namePaint: Paint,
@@ -155,7 +162,7 @@ private fun DrawScope.drawWorld(
             }
             val fx = ox + x * ts + ((h shr 4) % 11 + 2) * ps
             val fy = oy + y * ts + ((h shr 8) % 10 + 3) * ps
-            drawRect(fc, Offset(fx, fy), androidx.compose.ui.geometry.Size(ps * 1.6f, ps * 1.6f))
+            drawRect(fc, Offset(fx, fy), Size(ps * 1.6f, ps * 1.6f))
         }
     }
 
@@ -166,12 +173,16 @@ private fun DrawScope.drawWorld(
             val h = cellHash(x, y)
             var sp: ImageBitmap? = null
             var shadowW = 0f
+            var swaying = false
             when (sim.tiles[i]) {
                 T.FOREST -> {
-                    val pineTree = h % 3 == 0
-                    sp = if (pineTree) art.pine else art.oak
-                    shadowW = 10f
-                    if (sim.amt[i] <= 2) sp = art.stump
+                    if (sim.amt[i] <= 2) {
+                        sp = art.stump
+                    } else {
+                        sp = if (h % 3 == 0) art.pine else art.oak
+                        shadowW = 10f
+                        swaying = true
+                    }
                 }
                 T.ROCK -> { sp = art.rock; shadowW = 11f }
                 T.BUSH -> { sp = if (sim.amt[i] > 0) art.bush else art.bushEmpty; shadowW = 9f }
@@ -181,8 +192,8 @@ private fun DrawScope.drawWorld(
                 val hh = sp.height * ps
                 val cx = ox + (x + 0.5f) * ts
                 val baseY = oy + (y + 0.95f) * ts
-                if (sim.tiles[i] != T.FOREST || sim.amt[i] > 2) shadow(cx, baseY, shadowW * ps, 3.5f * ps)
-                val sway = if (sim.tiles[i] == T.FOREST && sim.amt[i] > 2) kotlin.math.sin(t * 1.3f + h % 7) * ps * 0.6f else 0f
+                if (shadowW > 0f) shadow(cx, baseY, shadowW * ps, 3.5f * ps)
+                val sway = if (swaying) kotlin.math.sin(t * 1.3f + (h % 7)) * ps * 0.6f else 0f
                 img(sp, cx - w / 2f + sway, baseY - hh, w, hh)
             }
         }
@@ -199,10 +210,11 @@ private fun DrawScope.drawWorld(
             val baseY = oy + (b.y + 0.97f) * ts
             if (b.type != "farm") shadow(cx, baseY, w * 0.9f, 3.5f * ps)
             img(sp, cx - w / 2f, baseY - hh, w, hh)
-            // a lit window at night
+            // lit windows at night
             if (b.type == "hut" && dark > 0.1f) {
-                drawRect(Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f)), Offset(cx - w * 0.36f, baseY - hh * 0.5f), androidx.compose.ui.geometry.Size(ps * 2f, ps * 2.4f))
-                drawRect(Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f)), Offset(cx + w * 0.18f, baseY - hh * 0.5f), androidx.compose.ui.geometry.Size(ps * 2f, ps * 2.4f))
+                val glow = Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f))
+                drawRect(glow, Offset(cx - w * 0.36f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
+                drawRect(glow, Offset(cx + w * 0.18f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
             }
         }
     }
@@ -229,8 +241,11 @@ private fun DrawScope.drawWorld(
         val sp = art.person(v.colorIdx, if (walking) (((v.x + v.y) * 3).toInt() and 1) else 0)
         val w = sp.width * ps
         val h = sp.height * ps
-        val bob = if (walking) kotlin.math.abs(kotlin.math.sin(t * 9f + v.id)) * ps * 0.8f
-        else if (v.phase == "working") kotlin.math.abs(kotlin.math.sin(t * 6f + v.id)) * ps * 1.2f else 0f
+        val bob = when (v.phase) {
+            "walking" -> kotlin.math.abs(kotlin.math.sin(t * 9f + v.id)) * ps * 0.8f
+            "working" -> kotlin.math.abs(kotlin.math.sin(t * 6f + v.id)) * ps * 1.2f
+            else -> 0f
+        }
         val px = ox + v.x * ts - w / 2f
         val feetY = oy + (v.y + 0.45f) * ts
         shadow(ox + v.x * ts, feetY, w * 0.9f, 2.6f * ps)
@@ -254,7 +269,7 @@ private fun DrawScope.drawWorld(
                 drawRect(
                     col.copy(alpha = 1f - p),
                     Offset(ox + v.x * ts + (k - 1) * ps * 3f + v.facing * ps * 3f, feetY - h * 0.7f - p * ps * 8f),
-                    androidx.compose.ui.geometry.Size(ps * 1.6f, ps * 1.6f),
+                    Size(ps * 1.6f, ps * 1.6f),
                 )
             }
         }
@@ -266,11 +281,11 @@ private fun DrawScope.drawWorld(
         val span = GW * ts + 14f * ts
         for (k in 0 until 4) {
             val cx = ox - 7f * ts + ((t * 0.9f * ts * 0.12f + k * span / 4f) % span)
-            val cy = oy + (GH * (0.18f + 0.22f * k) % GH) * ts
+            val cy = oy + ((GH * (0.18f + 0.22f * k)) % GH) * ts
             drawOval(
                 Color.Black.copy(alpha = cloudAlpha),
                 topLeft = Offset(cx - ts * 5f, cy - ts * 1.6f),
-                size = androidx.compose.ui.geometry.Size(ts * 10f, ts * 3.2f),
+                size = Size(ts * 10f, ts * 3.2f),
             )
         }
     }
@@ -292,7 +307,6 @@ private fun DrawScope.drawWorld(
                 center = c,
             )
         }
-        // fireflies
         for (i in 0 until 16) {
             val fx = ox + ((cellHash(i, 3) % GW) + 0.5f + kotlin.math.sin(t * 0.6f + i) * 1.4f) * ts
             val fy = oy + ((cellHash(i, 9) % GH) + 0.5f + kotlin.math.cos(t * 0.5f + i * 1.7f) * 1.2f) * ts

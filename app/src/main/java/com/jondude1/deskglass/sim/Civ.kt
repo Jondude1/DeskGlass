@@ -662,7 +662,7 @@ class CivSim(
     private fun schedule() {
         val b = brainProvider()
         val configured = b != null
-        if (b == null) brain = "autopilot — add a model or API key in Settings"
+        if (b == null) brain = "autopilot — set your local model in Settings"
         val idle = villagers.filter { it.phase == "idle" && it.idleFor >= 0.8f }.sortedByDescending { it.idleFor }
         for (v in idle) {
             if (v.waiting) {
