@@ -46,9 +46,13 @@ class Prefs(context: Context) {
             .apply()
     }
 
-    var lastGameSlot: String
-        get() = sp.getString("lastGameSlot", "") ?: ""
-        set(v) = sp.edit().putString("lastGameSlot", v).apply()
+    var civUrl: String
+        get() = sp.getString("civUrl", "") ?: ""
+        set(v) = sp.edit().putString("civUrl", v.trim()).apply()
+
+    var civModel: String
+        get() = sp.getString("civModel", "") ?: ""
+        set(v) = sp.edit().putString("civModel", v.trim()).apply()
 
     var driveFolder: String?
         get() = sp.getString("driveFolder", null)

@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,7 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.jondude1.deskglass.BuildConfig
 import com.jondude1.deskglass.MainViewModel
 
-enum class Screen { Home, Calendar, Notes, Checklists, Chat, Games, Play, Settings }
+enum class Screen { Home, Calendar, Notes, Checklists, Chat, Village, Settings }
 
 @Composable
 fun BackBar(title: String, onBack: () -> Unit, trailing: @Composable (() -> Unit)? = null) {
@@ -202,6 +203,47 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                             }
                         })
                     }
+                }
+            }
+
+            GlassCard(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                var urlDraft by remember { mutableStateOf(vm.prefs.civUrl) }
+                var civModelDraft by remember { mutableStateOf(vm.prefs.civModel) }
+                var civStatus by remember { mutableStateOf<String?>(null) }
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionLabel("VILLAGE BRAIN (YOUR LOCAL MODEL)")
+                    Text("Server address, for example http://100.101.102.103:11434", color = Glass.InkDim, fontSize = 18.sp)
+                    OutlinedTextField(
+                        value = urlDraft,
+                        onValueChange = { urlDraft = it },
+                        singleLine = true,
+                        placeholder = { Text("http://your-tailscale-ip:11434", color = Glass.InkFaint) },
+                        colors = glassFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("Model name, exactly as your server lists it", color = Glass.InkDim, fontSize = 18.sp)
+                    OutlinedTextField(
+                        value = civModelDraft,
+                        onValueChange = { civModelDraft = it },
+                        singleLine = true,
+                        placeholder = { Text("llama3.1:8b", color = Glass.InkFaint) },
+                        colors = glassFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        GlassButton("Save and test", {
+                            vm.prefs.civUrl = urlDraft
+                            vm.prefs.civModel = civModelDraft
+                            civStatus = "Testing…"
+                            scope.launch { civStatus = vm.testCivBrain(urlDraft, civModelDraft) }
+                        }, filled = true)
+                        civStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp, modifier = Modifier.weight(1f)) }
+                    }
+                    Text(
+                        "Works with Ollama, LM Studio and similar servers. Leave it empty and the villagers run on simple built-in rules.",
+                        color = Glass.InkFaint, fontSize = 15.sp,
+                    )
                 }
             }
 

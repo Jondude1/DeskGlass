@@ -84,29 +84,24 @@ fun DeskGlassApp(vm: MainViewModel) {
         }
     }
 
-    BackHandler(enabled = screen != Screen.Home) {
-        screen = if (screen == Screen.Play) Screen.Games else Screen.Home
-    }
+    BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
 
     val dim by animateFloatAsState(if (active) 0f else 0.5f, animationSpec = tween(2500), label = "dim")
 
     Box(Modifier.fillMaxSize()) {
         AuroraBackground(animate = active)
 
-        // The self-playing game, behind the idle home screen only.
-        val games by vm.games.collectAsState()
+        // The village, running behind the idle home screen only.
         val narration by vm.narration.collectAsState()
-        val wallpaperId = games.firstOrNull()?.id
-        val wallpaperHtml = remember(wallpaperId) { wallpaperId?.let { vm.gameHtml(it) } }
-        val showWallpaper = screen == Screen.Home && active && wallpaperHtml != null
+        val showWallpaper = screen == Screen.Home && active
         AnimatedVisibility(
             visible = showWallpaper,
             enter = fadeIn(tween(2000)),
             exit = fadeOut(tween(400)),
         ) {
             Box(Modifier.fillMaxSize()) {
-                GameView(wallpaperHtml ?: "", "bot", interactive = false, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
-                Box(Modifier.fillMaxSize().background(Color(0xAA05070D)))
+                CivCanvas(vm.civ, Modifier.fillMaxSize(), cover = true)
+                Box(Modifier.fillMaxSize().background(Color(0x9905070D)))
             }
         }
 
@@ -117,8 +112,7 @@ fun DeskGlassApp(vm: MainViewModel) {
                 Screen.Notes -> NotesScreen(vm) { screen = Screen.Home }
                 Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
                 Screen.Chat -> ChatScreen(vm, { screen = Screen.Home }) { screen = Screen.Settings }
-                Screen.Games -> GamesScreen(vm, { screen = Screen.Home }) { screen = Screen.Play }
-                Screen.Play -> PlayScreen(vm) { screen = Screen.Games }
+                Screen.Village -> VillageScreen(vm) { screen = Screen.Home }
                 Screen.Settings -> SettingsScreen(vm) { screen = Screen.Home }
             }
         }
@@ -133,11 +127,8 @@ fun DeskGlassApp(vm: MainViewModel) {
                 )
             }
             GlassButton(
-                "Play this",
-                {
-                    wallpaperId?.let { vm.startPlay(it, "human") }
-                    screen = Screen.Play
-                },
+                "Open village",
+                { screen = Screen.Village },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 40.dp),
             )
         }

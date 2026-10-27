@@ -18,8 +18,6 @@ import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.DriveSync
 import com.jondude1.deskglass.data.ErrorLog
 import com.jondude1.deskglass.data.Event
-import com.jondude1.deskglass.data.GameInfo
-import com.jondude1.deskglass.data.GameStore
 import com.jondude1.deskglass.data.EventStore
 import com.jondude1.deskglass.data.Note
 import com.jondude1.deskglass.data.NoteStore
@@ -28,7 +26,11 @@ import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
 import com.jondude1.deskglass.update.UpdateInfo
 import com.jondude1.deskglass.ui.isActiveHours
+import com.jondude1.deskglass.sim.CivSim
+import com.jondude1.deskglass.sim.Llm
 import com.jondude1.deskglass.update.Updater
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,8 +53,6 @@ sealed interface UpdateUi {
     data class Available(val info: UpdateInfo) : UpdateUi
     data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateUi
 }
-
-data class PlayRequest(val gameId: String, val mode: String)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
@@ -193,77 +193,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---- Games ----
+    // ---- Village ----
 
-    private val gameStore = GameStore(app)
-    val games: StateFlow<List<GameInfo>> = gameStore.games
-    private val gameGenerator = GameGenerator(prefs)
-    private val gameMutex = Mutex()
-
-    private val _gameStatus = MutableStateFlow<String?>(null)
-    val gameStatus: StateFlow<String?> = _gameStatus.asStateFlow()
+    val civ = CivSim(java.io.File(app.filesDir, "village.json"), viewModelScope) { Pair(prefs.civUrl, prefs.civModel) }
 
     private val _narration = MutableStateFlow<String?>(null)
     val narration: StateFlow<String?> = _narration.asStateFlow()
 
-    private val _play = MutableStateFlow<PlayRequest?>(null)
-    val play: StateFlow<PlayRequest?> = _play.asStateFlow()
-
-    fun gameHtml(id: String): String? = gameStore.html(id)
-    fun startPlay(id: String, mode: String) { _play.value = PlayRequest(id, mode) }
-
-    /** Called from the game page, on a background thread. */
     fun onNarrate(text: String) {
-        val t = text.trim().take(80)
+        val t = text.trim().take(90)
         if (t.isEmpty()) return
         _narration.value = t
         viewModelScope.launch {
-            delay(6_000L)
+            delay(7_000L)
             if (_narration.value == t) _narration.value = null
         }
     }
 
     fun clearNarration() { _narration.value = null }
 
-    fun makeGameNow() {
-        viewModelScope.launch { generateGame(manual = true) }
-    }
-
-    private suspend fun generateGame(manual: Boolean): Boolean = gameMutex.withLock {
-        if (prefs.apiKey.isBlank()) {
-            if (manual) _gameStatus.value = "Add your API key in Settings first."
-            return@withLock false
-        }
-        _gameStatus.value = "Claude is writing a new game… this takes a couple of minutes."
+    /** Asks the local model one small question, to check the address and model name. */
+    suspend fun testCivBrain(url: String, model: String): String = withContext(Dispatchers.IO) {
         try {
-            val g = gameGenerator.generate(gameStore.games.value.map { it.title })
-            gameStore.add(g.title, g.blurb, g.html)
-            _gameStatus.value = "New game: ${g.title}"
-            true
+            val answer = Llm.chat(url, model, "Reply with the single word: ready", "Are you there?", maxTokens = 60)
+            if (answer.isBlank()) "Connected, but the model sent an empty answer." else "Connected. The model says: ${answer.take(60)}"
         } catch (e: Exception) {
-            _gameStatus.value = "Couldn't make a game: " + friendly(e)
-            false
+            errorLog.add("Village test", "${e.javaClass.simpleName}: ${e.message}\nAddress: $url  Model: $model")
+            "Couldn't connect: ${e.message ?: e.javaClass.simpleName}"
         }
     }
 
     init {
-        // A new game at 8, 12 and 4 on weekdays. The first game is made whenever there is a key.
-        viewModelScope.launch {
-            var lastTry = 0L
-            while (true) {
-                delay(60_000L)
-                if (prefs.apiKey.isBlank()) continue
-                if (System.currentTimeMillis() - lastTry < 10 * 60_000L) continue
-                val t = LocalDateTime.now()
-                val empty = gameStore.games.value.isEmpty()
-                val slotHour = listOf(8, 12, 16).lastOrNull { it <= t.hour }
-                val slot = if (isActiveHours(t) && slotHour != null) "${t.toLocalDate()}-$slotHour" else null
-                val due = (slot != null && prefs.lastGameSlot != slot) || empty
-                if (!due) continue
-                lastTry = System.currentTimeMillis()
-                if (generateGame(manual = false) && slot != null) prefs.lastGameSlot = slot
-            }
-        }
+        civ.onNarrate = { onNarrate(it) }
+        civ.onError = { errorLog.add("Village", it) }
     }
 
     // ---- The line under the clock ----
