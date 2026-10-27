@@ -102,6 +102,13 @@ class CivArt {
         'c' to 0xFF4A4A52.toInt(), 'C' to 0xFF2E2E34.toInt(), 's' to 0xFF8A8A94.toInt(), 'S' to 0xFF62626C.toInt(),
         'O' to 0xFFFF7A21.toInt(), 'y' to 0xFFFFD84A.toInt(),
     ))
+    val wolf = sprite(WOLF, mapOf(
+        'w' to 0xFF8E8E98.toInt(), 'W' to 0xFFB8B8C2.toInt(), 'd' to 0xFF50505A.toInt(),
+        'e' to 0xFFFF4040.toInt(), 'n' to 0xFF222222.toInt(),
+    ))
+    val bear = sprite(BEAR, mapOf(
+        'b' to 0xFF6B4A2B.toInt(), 'B' to 0xFF4A3220.toInt(), 'e' to 0xFFFF3030.toInt(), 'n' to 0xFFC9A26B.toInt(),
+    ))
     val farm = sprite(FARM, mapOf(
         'd' to 0xFF6B4A2B.toInt(), 'D' to 0xFF573A20.toInt(), 'g' to 0xFF7BC043.toInt(),
         'G' to 0xFFE8C547.toInt(), 'f' to 0xFF8B6B45.toInt(),
@@ -359,6 +366,26 @@ class CivArt {
             ".ssOyyyyOss.",
             ".ssssssssss.",
             "SSSSSSSSSSSS",
+        )
+        val WOLF = listOf(
+            "......d.d.",
+            ".....wwwww",
+            "ww..wwwWen",
+            "wwwwwwwww.",
+            "wwwwwwwww.",
+            ".d.d..d.d.",
+            ".d.d..d.d.",
+        )
+        val BEAR = listOf(
+            "........b.b.",
+            "..bbbbbbbbbb",
+            ".bbbbbbbbebn",
+            "bbbbbbbbbbbb",
+            "bbbBbbbbbBbb",
+            "bbbbbbbbbbbb",
+            ".bbbbbbbbbb.",
+            ".BB.BB..BB..",
+            ".BB.BB..BB..",
         )
         val FARM = listOf(
             "ffffffffffffff",

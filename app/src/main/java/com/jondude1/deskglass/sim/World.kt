@@ -42,6 +42,14 @@ val WORLD_AGES = listOf(
     WorldAgeInfo("Age of Despair", "Hunger, doubt and endless war.", 0xFF30303A, 0.20f, "fog", -1.4f, 0.7f, 1.7f, 0.18f),
 )
 
+/** A wolf or bear hunting near the village. */
+class Predator(val kind: String, var x: Float, var y: Float) {
+    var hp = if (kind == "bear") 90f else 40f
+    var cool = 0f
+    var life = 0f
+    var angle = 0f
+}
+
 val GOD_POWERS = listOf("Bless", "Rain", "Spawn", "Lightning", "Quake", "Meteor", "Plague")
 
 val RACE_NAMES = mapOf(

@@ -101,6 +101,7 @@ class Villager(val id: Int, val name: String, var job: String, val personaIdx: I
     var born = 0.0
     var lifespan = 60
     var parents = ""
+    var harmedBy = ""
     var x = 0f
     var y = 0f
     var hunger = 20f
@@ -217,6 +218,8 @@ class CivSim(
     val biome = IntArray(GW * GH)
     val owner = IntArray(GW * GH) { -1 }
     val fx = ArrayList<Fx>()
+    val predators = ArrayList<Predator>()
+    private val fleeAt = HashMap<Int, Double>()
     var worldAge = 0
         private set
     private var worldAgeStart = 0.0
@@ -280,6 +283,7 @@ class CivSim(
         explored = 0
         age = 0
         chronicle.clear()
+        predators.clear()
         time = DAY_LEN * 0.08
         lastBirth = time
         worldAge = 0
@@ -1002,7 +1006,7 @@ class CivSim(
 
     // ---- brains ----
 
-    private fun alert() = time < alertUntil
+    private fun alert() = time < alertUntil || predators.isNotEmpty()
     fun raining() = time < rainUntil || outsideRain || worldAge == 5
     private fun festival() = time < festivalUntil
 
@@ -1605,6 +1609,10 @@ class CivSim(
     private fun worldNote(): String {
         val inf = ageInfo()
         val sb = StringBuilder("World age: ${inf.name} (${inf.blurb}) ")
+        if (predators.isNotEmpty()) {
+            val kinds = predators.groupBy { it.kind }.entries.joinToString(", ") { "${it.value.size} ${it.key}${if (it.value.size == 1) "" else "s"}" }
+            sb.append("DANGER: $kinds hunting near the village. Fighters should defend; others should stay by the fire. ")
+        }
         val others = kingdoms.filter { it.id != 0 && !it.fallen }
         if (others.isNotEmpty()) {
             sb.append("Neighbouring kingdoms: " + others.joinToString(", ") { "${it.name} (${it.race}s, ${relOf(0, it.id)} with you)" } + ". ")
@@ -1763,6 +1771,118 @@ class CivSim(
         }
     }
 
+    // ---- predators: wolves and bears hunt anyone caught away from the fire ----
+
+    private fun spawnPredators(kind: String, n: Int) {
+        val fire = buildings.firstOrNull { it.type == "campfire" }
+        repeat(n) {
+            for (attempt in 0 until 12) {
+                val edgeX = if (rnd.nextBoolean()) 1.5f else GW - 2.5f
+                val y = 2f + rnd.nextFloat() * (GH - 4f)
+                if (tiles[y.toInt() * GW + edgeX.toInt()] == T.WATER) continue
+                if (fire != null && hypot(edgeX - fire.x, y - fire.y) < 9f) continue
+                predators.add(Predator(kind, edgeX, y).also { it.angle = rnd.nextFloat() * 6.28f })
+                break
+            }
+        }
+    }
+
+    private fun stepPredator(p: Predator, dx: Float, dy: Float) {
+        val nx = (p.x + dx).coerceIn(0.5f, GW - 0.6f)
+        val ny = (p.y + dy).coerceIn(0.5f, GH - 0.6f)
+        if (tiles[ny.toInt() * GW + nx.toInt()] == T.WATER) {
+            p.angle += 1.7f
+            return
+        }
+        p.x = nx
+        p.y = ny
+    }
+
+    private fun isFighter(v: Villager) = !isChild(v) && v.hp > 35f &&
+        (age >= 2 || v.job in setOf("Hunter", "Scout", "Builder", "Woodcutter", "Miner", "Bronzesmith", "Blacksmith"))
+
+    private fun predatorTick(dt: Float) {
+        if (predators.isEmpty()) return
+        val fires = buildings.filter { it.type == "campfire" }
+        for (p in predators.toList()) {
+            p.life += dt
+            if (p.cool > 0f) p.cool -= dt
+            var prey: Villager? = null
+            var best = 15f
+            for (v in villagers) {
+                val safe = fires.any { hypot(it.x + 0.5f - v.x, it.y + 0.5f - v.y) < 3.2f }
+                if (safe) continue
+                val d = hypot(v.x - p.x, v.y - p.y)
+                if (d < best) {
+                    best = d
+                    prey = v
+                }
+            }
+            val speed = (if (p.kind == "bear") 1.5f else 2.1f) * dt
+            if (p.life > 150f && prey == null) {
+                // the hunt is over: slip away toward the nearest map edge
+                val tx = if (p.x < GW / 2f) 0f else GW.toFloat()
+                val d = max(0.1f, abs(tx - p.x))
+                stepPredator(p, (tx - p.x) / d * speed, 0f)
+                if (p.x < 0.8f || p.x > GW - 1.2f) {
+                    predators.remove(p)
+                    if (predators.isEmpty()) event("The ${p.kind}s slink back into the woods. The village breathes again.")
+                }
+                continue
+            }
+            if (prey != null) {
+                val dx = prey.x - p.x
+                val dy = prey.y - p.y
+                val d = max(0.05f, hypot(dx, dy))
+                if (d > 0.8f) stepPredator(p, dx / d * speed, dy / d * speed)
+                else if (p.cool <= 0f) {
+                    val dmg = (if (p.kind == "bear") 22f else 12f) * (if (isChild(prey)) 1.5f else 1f)
+                    prey.hp -= dmg
+                    prey.harmedBy = p.kind
+                    prey.happiness = max(0f, prey.happiness - 12f)
+                    prey.say = "Aaah!"
+                    prey.sayLeft = 2.5f
+                    p.cool = 1.4f
+                    fx.add(Fx("clash", prey.x, prey.y, time, 1.2f))
+                }
+            } else {
+                if (rnd.nextInt(60) == 0) p.angle += (rnd.nextFloat() - 0.5f) * 2.4f
+                stepPredator(p, kotlin.math.cos(p.angle) * speed * 0.5f, kotlin.math.sin(p.angle) * speed * 0.5f)
+            }
+            val fighters = villagers.filter { isFighter(it) && hypot(it.x - p.x, it.y - p.y) < 2.6f }
+            if (fighters.isNotEmpty()) {
+                p.hp -= fighters.size * (6f + 3f * toolBonus()) * dt
+                if (rnd.nextInt(40) == 0) fx.add(Fx("clash", p.x, p.y, time, 0.8f))
+            }
+            if (p.hp <= 0f) {
+                predators.remove(p)
+                val meat = if (p.kind == "bear") 8 else 4
+                food += meat
+                val hero = fighters.maxByOrNull { it.hp }
+                if (hero != null) {
+                    hero.happiness = min(100f, hero.happiness + 15f)
+                    hero.remember("helped kill a ${p.kind}")
+                    event("${hero.name} and the others bring down the ${p.kind}! (+$meat food)")
+                    mark("${hero.name} helped slay a ${p.kind}.")
+                } else {
+                    event("The ${p.kind} falls (+$meat food).")
+                }
+            }
+        }
+        // everyone who is not a fighter runs for the fire when a predator gets close
+        for (v in villagers) {
+            if (v.phase == "sleeping") continue
+            if (isFighter(v) && v.hp > 50f) continue
+            val near = predators.any { hypot(it.x - v.x, it.y - v.y) < 4.5f }
+            if (!near || time < (fleeAt[v.id] ?: 0.0)) continue
+            fleeAt[v.id] = time + 4.0
+            if (startAction(v, "huddle", "")) {
+                v.say = "Run!"
+                v.sayLeft = 2f
+            }
+        }
+    }
+
     private fun godAct(text: String) {
         addLog(text)
         lastNarrateAt = 0L
@@ -1905,7 +2025,16 @@ class CivSim(
             2 -> {
                 alertUntil = time + 80.0
                 for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
-                event("Wolves howl beyond the trees! Everyone stay near the fire.")
+                val bearLoose = (worldAge == 4 || worldAge == 6 || worldAge == 9) && rnd.nextInt(3) == 0
+                if (bearLoose) {
+                    spawnPredators("bear", 1)
+                    event("A huge bear crashes out of the forest and heads for the village!")
+                } else {
+                    val n = 2 + rnd.nextInt(2)
+                    spawnPredators("wolf", n)
+                    event("A pack of $n wolves prowls out of the trees! Stay near the fire, fighters to the edge.")
+                }
+                mark("Predators attacked the village.")
             }
             3 -> {
                 rainUntil = time + 90.0
@@ -1936,6 +2065,7 @@ class CivSim(
         drain()
 
         for (v in villagers.toList()) update(v, dt)
+        predatorTick(dt)
 
         bushClock += dt
         if (bushClock > 30f) {
@@ -2011,7 +2141,12 @@ class CivSim(
         v.happiness = v.happiness.coerceIn(0f, 100f)
         if (v.hp <= 0f) {
             villagers.remove(v)
-            event("${v.name} the ${v.job.lowercase()} starved. The village mourns.")
+            if (v.harmedBy.isNotEmpty()) {
+                event("${v.name} the ${v.job.lowercase()} was killed by a ${v.harmedBy}. The village mourns.")
+                mark("${v.name} the ${v.job.lowercase()} was killed by a ${v.harmedBy}.")
+            } else {
+                event("${v.name} the ${v.job.lowercase()} starved. The village mourns.")
+            }
             return
         }
         if (isChild(v) && ageYears(v) >= 3) growUp(v)

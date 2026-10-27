@@ -712,6 +712,22 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // predators
+    for (p in sim.predators) {
+        val sp = if (p.kind == "bear") art.bear else art.wolf
+        val sc = if (p.kind == "bear") 1.15f else 1f
+        val w = sp.width * ps * sc
+        val h = sp.height * ps * sc
+        val feet = oy + (p.y + 0.45f) * ts
+        shadow(ox + p.x * ts, feet, w * 0.9f, 2.6f * ps)
+        img(sp, ox + p.x * ts - w / 2f, feet - h, w, h)
+        val maxHp = if (p.kind == "bear") 90f else 40f
+        if (p.hp < maxHp) {
+            drawRect(Color(0xAA000000), Offset(ox + p.x * ts - w / 2f, feet - h - ps * 2.5f), Size(w, ps * 1.4f))
+            drawRect(Color(0xFFE0453A), Offset(ox + p.x * ts - w / 2f, feet - h - ps * 2.5f), Size(w * (p.hp / maxHp).coerceIn(0f, 1f), ps * 1.4f))
+        }
+    }
+
     // drifting cloud shadows in daylight
     val cloudAlpha = 0.10f * (1f - dark / 0.55f)
     if (cloudAlpha > 0.005f) {
@@ -900,26 +916,6 @@ private fun DrawScope.drawWorld(
     }
 }
 
-/** The god powers: pick one, then tap the map. */
-@Composable
-fun PowerBar(selected: String?, onSelect: (String?) -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            for (name in GOD_POWERS) {
-                GlassButton(name, { onSelect(if (selected == name) null else name) }, filled = selected == name)
-            }
-        }
-        Text(
-            if (selected == null) "Pick a god power, then tap the world." else "$selected: tap anywhere on the map. Tap the button again to put it away.",
-            color = Glass.InkFaint,
-            fontSize = 12.sp,
-        )
-    }
-}
-
 /** The full-screen village: watch, read what everyone is thinking, and speak to the village. */
 @Composable
 fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean) -> Unit, onBack: () -> Unit) {
@@ -927,8 +923,6 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
     var tick by remember { mutableLongStateOf(0L) }
     var whisper by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
-    var power by remember { mutableStateOf<String?>(null) }
-    val usePower: (Float, Float) -> Unit = { x, y -> power?.let { sim.usePower(it, x, y) } }
     LaunchedEffect(Unit) {
         while (true) {
             delay(500L)
@@ -940,8 +934,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
 
     if (fullscreen) {
         Box(Modifier.fillMaxSize()) {
-            CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true, onTapTile = usePower)
-            PowerBar(power, { power = it }, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
+            CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
             GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
             Text(
                 "${sim.ageInfo().name} · ${sim.ageName()} · day ${sim.day()}",
@@ -977,9 +970,8 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
         })
         Row(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(Modifier.weight(0.68f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PowerBar(power, { power = it }, Modifier.fillMaxWidth())
                 GlassCard(Modifier.weight(1f).fillMaxWidth(), corner = 24.dp) {
-                    CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true, onTapTile = usePower)
+                    CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
                 }
             }
             Column(Modifier.weight(0.32f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
