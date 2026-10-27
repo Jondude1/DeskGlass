@@ -46,6 +46,10 @@ class Prefs(context: Context) {
             .apply()
     }
 
+    var lastGameSlot: String
+        get() = sp.getString("lastGameSlot", "") ?: ""
+        set(v) = sp.edit().putString("lastGameSlot", v).apply()
+
     var driveFolder: String?
         get() = sp.getString("driveFolder", null)
         set(v) = sp.edit().apply { if (v == null) remove("driveFolder") else putString("driveFolder", v) }.apply()

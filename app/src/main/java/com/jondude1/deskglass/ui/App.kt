@@ -5,7 +5,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -76,12 +84,31 @@ fun DeskGlassApp(vm: MainViewModel) {
         }
     }
 
-    BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
+    BackHandler(enabled = screen != Screen.Home) {
+        screen = if (screen == Screen.Play) Screen.Games else Screen.Home
+    }
 
     val dim by animateFloatAsState(if (active) 0f else 0.5f, animationSpec = tween(2500), label = "dim")
 
     Box(Modifier.fillMaxSize()) {
         AuroraBackground(animate = active)
+
+        // The self-playing game, behind the idle home screen only.
+        val games by vm.games.collectAsState()
+        val narration by vm.narration.collectAsState()
+        val wallpaperId = games.firstOrNull()?.id
+        val wallpaperHtml = remember(wallpaperId) { wallpaperId?.let { vm.gameHtml(it) } }
+        val showWallpaper = screen == Screen.Home && active && wallpaperHtml != null
+        AnimatedVisibility(
+            visible = showWallpaper,
+            enter = fadeIn(tween(2000)),
+            exit = fadeOut(tween(400)),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                GameView(wallpaperHtml ?: "", "bot", interactive = false, onNarrate = vm::onNarrate, modifier = Modifier.fillMaxSize())
+                Box(Modifier.fillMaxSize().background(Color(0xAA05070D)))
+            }
+        }
 
         Crossfade(targetState = screen, modifier = Modifier.imePadding(), animationSpec = tween(350), label = "screen") { s ->
             when (s) {
@@ -90,8 +117,29 @@ fun DeskGlassApp(vm: MainViewModel) {
                 Screen.Notes -> NotesScreen(vm) { screen = Screen.Home }
                 Screen.Checklists -> ChecklistsScreen(vm) { screen = Screen.Home }
                 Screen.Chat -> ChatScreen(vm, { screen = Screen.Home }) { screen = Screen.Settings }
+                Screen.Games -> GamesScreen(vm, { screen = Screen.Home }) { screen = Screen.Play }
+                Screen.Play -> PlayScreen(vm) { screen = Screen.Games }
                 Screen.Settings -> SettingsScreen(vm) { screen = Screen.Home }
             }
+        }
+
+        if (showWallpaper) {
+            if (narration != null) {
+                Text(
+                    narration!!,
+                    color = Glass.InkFaint,
+                    fontSize = 15.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 44.dp),
+                )
+            }
+            GlassButton(
+                "Play this",
+                {
+                    wallpaperId?.let { vm.startPlay(it, "human") }
+                    screen = Screen.Play
+                },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 40.dp),
+            )
         }
 
         if (dim > 0f) {

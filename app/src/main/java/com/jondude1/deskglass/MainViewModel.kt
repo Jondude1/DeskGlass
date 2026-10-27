@@ -11,11 +11,14 @@ import com.jondude1.deskglass.ai.ApiException
 import com.jondude1.deskglass.ai.ChatEngine
 import com.jondude1.deskglass.ai.ChatMessage
 import com.jondude1.deskglass.ai.ChatStore
+import com.jondude1.deskglass.ai.GameGenerator
 import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.DriveSync
 import com.jondude1.deskglass.data.Event
+import com.jondude1.deskglass.data.GameInfo
+import com.jondude1.deskglass.data.GameStore
 import com.jondude1.deskglass.data.EventStore
 import com.jondude1.deskglass.data.Note
 import com.jondude1.deskglass.data.NoteStore
@@ -23,7 +26,9 @@ import com.jondude1.deskglass.data.Prefs
 import com.jondude1.deskglass.data.WeatherApi
 import com.jondude1.deskglass.data.WeatherNow
 import com.jondude1.deskglass.update.UpdateInfo
+import com.jondude1.deskglass.ui.isActiveHours
 import com.jondude1.deskglass.update.Updater
+import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +50,8 @@ sealed interface UpdateUi {
     data class Available(val info: UpdateInfo) : UpdateUi
     data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateUi
 }
+
+data class PlayRequest(val gameId: String, val mode: String)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
@@ -181,6 +188,79 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             noteStore.notes.collectLatest {
                 delay(30_000L)
                 runDriveSync(announce = false)
+            }
+        }
+    }
+
+    // ---- Games ----
+
+    private val gameStore = GameStore(app)
+    val games: StateFlow<List<GameInfo>> = gameStore.games
+    private val gameGenerator = GameGenerator(prefs)
+    private val gameMutex = Mutex()
+
+    private val _gameStatus = MutableStateFlow<String?>(null)
+    val gameStatus: StateFlow<String?> = _gameStatus.asStateFlow()
+
+    private val _narration = MutableStateFlow<String?>(null)
+    val narration: StateFlow<String?> = _narration.asStateFlow()
+
+    private val _play = MutableStateFlow<PlayRequest?>(null)
+    val play: StateFlow<PlayRequest?> = _play.asStateFlow()
+
+    fun gameHtml(id: String): String? = gameStore.html(id)
+    fun startPlay(id: String, mode: String) { _play.value = PlayRequest(id, mode) }
+
+    /** Called from the game page, on a background thread. */
+    fun onNarrate(text: String) {
+        val t = text.trim().take(80)
+        if (t.isEmpty()) return
+        _narration.value = t
+        viewModelScope.launch {
+            delay(6_000L)
+            if (_narration.value == t) _narration.value = null
+        }
+    }
+
+    fun clearNarration() { _narration.value = null }
+
+    fun makeGameNow() {
+        viewModelScope.launch { generateGame(manual = true) }
+    }
+
+    private suspend fun generateGame(manual: Boolean): Boolean = gameMutex.withLock {
+        if (prefs.apiKey.isBlank()) {
+            if (manual) _gameStatus.value = "Add your API key in Settings first."
+            return@withLock false
+        }
+        _gameStatus.value = "Claude is writing a new game… this takes a couple of minutes."
+        try {
+            val g = gameGenerator.generate(gameStore.games.value.map { it.title })
+            gameStore.add(g.title, g.blurb, g.html)
+            _gameStatus.value = "New game: ${g.title}"
+            true
+        } catch (e: Exception) {
+            _gameStatus.value = "Couldn't make a game: " + friendly(e)
+            false
+        }
+    }
+
+    init {
+        // A new game at 8, 12 and 4 on weekdays. The first game is made whenever there is a key.
+        viewModelScope.launch {
+            var lastTry = 0L
+            while (true) {
+                delay(60_000L)
+                if (prefs.apiKey.isBlank()) continue
+                if (System.currentTimeMillis() - lastTry < 10 * 60_000L) continue
+                val t = LocalDateTime.now()
+                val empty = gameStore.games.value.isEmpty()
+                val slotHour = listOf(8, 12, 16).lastOrNull { it <= t.hour }
+                val slot = if (isActiveHours(t) && slotHour != null) "${t.toLocalDate()}-$slotHour" else null
+                val due = (slot != null && prefs.lastGameSlot != slot) || empty
+                if (!due) continue
+                lastTry = System.currentTimeMillis()
+                if (generateGame(manual = false) && slot != null) prefs.lastGameSlot = slot
             }
         }
     }

@@ -156,6 +156,7 @@ private fun Dock(onOpen: (Screen) -> Unit) {
             GlassButton("Notes", { onOpen(Screen.Notes) })
             GlassButton("Checklists", { onOpen(Screen.Checklists) })
             GlassButton("Chat", { onOpen(Screen.Chat) })
+            GlassButton("Games", { onOpen(Screen.Games) })
             Box(
                 Modifier
                     .size(52.dp)
