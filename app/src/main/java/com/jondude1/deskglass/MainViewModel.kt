@@ -16,6 +16,7 @@ import com.jondude1.deskglass.ai.MemoryStore
 import com.jondude1.deskglass.data.Checklist
 import com.jondude1.deskglass.data.ChecklistStore
 import com.jondude1.deskglass.data.DriveSync
+import com.jondude1.deskglass.data.ErrorLog
 import com.jondude1.deskglass.data.Event
 import com.jondude1.deskglass.data.GameInfo
 import com.jondude1.deskglass.data.GameStore
@@ -304,7 +305,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return if (k.length < 8) "" else "Saved key ending in ${k.takeLast(4)}"
     }
 
-    private fun friendly(e: Exception): String = when {
+    val errorLog = ErrorLog(app)
+
+    private fun friendly(e: Exception): String {
+        val detail = buildString {
+            append(e.javaClass.simpleName).append(": ").append(e.message ?: "(no message)")
+            if (e is ApiException) {
+                append("\nHTTP ").append(e.code)
+                if (e.raw.isNotBlank()) append("\n").append(e.raw)
+            }
+            append("\nModels: chat=").append(prefs.chatModel).append(", fast=").append(prefs.fastModel)
+        }
+        errorLog.add("Error", detail)
+        return friendlyText(e)
+    }
+
+    private fun friendlyText(e: Exception): String = when {
         e is ApiException && e.code == 401 -> "Claude rejected the API key. Check it in Settings."
         e is ApiException && e.code == 404 -> "Claude couldn't find that model. Check the model name in Settings."
         e is ApiException && e.code == 429 -> "Too many requests right now. Try again in a moment."

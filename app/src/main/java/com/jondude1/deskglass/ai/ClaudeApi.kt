@@ -4,7 +4,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 
-class ApiException(val code: Int, message: String) : Exception(message)
+class ApiException(val code: Int, message: String, val raw: String = "") : Exception(message)
 
 /** Plain HTTPS calls to the Anthropic Messages API. Blocking: call them off the main thread. */
 object ClaudeApi {
@@ -30,7 +30,7 @@ object ClaudeApi {
         } catch (e: Exception) {
             "HTTP $code"
         }
-        throw ApiException(code, msg)
+        throw ApiException(code, msg, text.take(1500))
     }
 
     fun call(apiKey: String, body: JSONObject): JSONObject {

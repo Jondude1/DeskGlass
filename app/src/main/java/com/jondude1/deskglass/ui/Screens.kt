@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jondude1.deskglass.BuildConfig
@@ -199,6 +201,25 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 confirmMemory = true
                             }
                         })
+                    }
+                }
+            }
+
+            GlassCard(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                val log by vm.errorLog.text.collectAsState()
+                val clipboard = LocalClipboardManager.current
+                Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionLabel("ERROR LOG")
+                    Text(
+                        if (log.isBlank()) "No errors yet." else log.take(3000),
+                        color = if (log.isBlank()) Glass.InkDim else Glass.Ink,
+                        fontSize = 14.sp,
+                    )
+                    if (log.isNotBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            GlassButton("Copy all", { clipboard.setText(AnnotatedString(log)) })
+                            GlassButton("Clear", { vm.errorLog.clear() })
+                        }
                     }
                 }
             }
