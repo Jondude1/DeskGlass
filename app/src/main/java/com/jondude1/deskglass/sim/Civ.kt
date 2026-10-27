@@ -52,6 +52,9 @@ class Villager(val id: Int, val name: String, val trait: String, val colorIdx: I
     val heard = ArrayList<String>()
 }
 
+/** Whatever answers the villagers' questions: the local model, or Claude through the saved key. */
+class Brain(val label: String, val gapSeconds: Double, val ask: (system: String, user: String) -> String)
+
 private class Decision(val villagerId: Int, val text: String?, val error: String?)
 
 private val NAMES = listOf(
@@ -86,7 +89,7 @@ private val DY = intArrayOf(0, 0, 1, -1)
 class CivSim(
     private val saveFile: File,
     private val scope: CoroutineScope,
-    private val config: () -> Pair<String, String>,
+    private val brainProvider: () -> Brain?,
 ) {
     val tiles = IntArray(GW * GH)
     val amt = IntArray(GW * GH)
@@ -110,6 +113,7 @@ class CivSim(
     private val results = ConcurrentLinkedQueue<Decision>()
     private var inFlight = false
     private var retryAt = 0.0
+    private var nextAskAt = 0.0
     private var lastBirth = 0.0
     private var farmClock = 0f
     private var bushClock = 0f
@@ -593,7 +597,7 @@ class CivSim(
     }
 
     private fun send(v: Villager) {
-        val (url, model) = config()
+        val b = brainProvider() ?: return
         val prompt = buildPrompt(v)
         v.waiting = true
         inFlight = true
@@ -601,7 +605,7 @@ class CivSim(
         val id = v.id
         scope.launch(Dispatchers.IO) {
             try {
-                results.add(Decision(id, Llm.chat(url, model, SYSTEM, prompt), null))
+                results.add(Decision(id, b.ask(SYSTEM, prompt), null))
             } catch (e: Exception) {
                 results.add(Decision(id, null, "${e.javaClass.simpleName}: ${e.message}"))
             }
@@ -612,6 +616,7 @@ class CivSim(
         while (true) {
             val r = results.poll() ?: break
             inFlight = false
+            nextAskAt = time + (brainProvider()?.gapSeconds ?: 0.0)
             val v = villagers.firstOrNull { it.id == r.villagerId }
             if (r.error != null) {
                 brain = "offline — using autopilot"
@@ -630,7 +635,7 @@ class CivSim(
                 val b = text.lastIndexOf('}')
                 require(a >= 0 && b > a) { "no JSON in: ${text.take(120)}" }
                 val o = JSONObject(text.substring(a, b + 1))
-                brain = "model online"
+                brain = (brainProvider()?.label ?: "model") + " online"
                 if (v != null && v.phase == "idle") {
                     applyDecision(
                         v,
@@ -655,9 +660,9 @@ class CivSim(
     }
 
     private fun schedule() {
-        val (url, model) = config()
-        val configured = url.isNotBlank() && model.isNotBlank()
-        if (!configured) brain = "autopilot — set a model in Settings"
+        val b = brainProvider()
+        val configured = b != null
+        if (b == null) brain = "autopilot — add a model or API key in Settings"
         val idle = villagers.filter { it.phase == "idle" && it.idleFor >= 0.8f }.sortedByDescending { it.idleFor }
         for (v in idle) {
             if (v.waiting) {
@@ -668,7 +673,7 @@ class CivSim(
                 continue
             }
             if (configured && time >= retryAt) {
-                if (!inFlight) send(v)
+                if (!inFlight && time >= nextAskAt) send(v)
                 else if (v.idleFor > 8f) {
                     val (a, t) = ruleDecision(v)
                     applyDecision(v, a, t, "", "")

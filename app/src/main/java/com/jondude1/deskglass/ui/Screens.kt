@@ -241,7 +241,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         civStatus?.let { Text(it, color = Glass.InkDim, fontSize = 17.sp, modifier = Modifier.weight(1f)) }
                     }
                     Text(
-                        "Works with Ollama, LM Studio and similar servers. Leave it empty and the villagers run on simple built-in rules.",
+                        "Works with Ollama, LM Studio and similar servers. Leave it empty and the villagers use Claude through your saved API key (the quick model), about one thought every few seconds.",
                         color = Glass.InkFaint, fontSize = 15.sp,
                     )
                 }
