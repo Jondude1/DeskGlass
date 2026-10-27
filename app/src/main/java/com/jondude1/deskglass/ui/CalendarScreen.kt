@@ -157,7 +157,7 @@ fun CalendarScreen(vm: MainViewModel, now: State<LocalDateTime>, onBack: () -> U
             GlassCard(Modifier.fillMaxHeight()) {
                 Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(
-                        Modifier.width(7 * 54.dp),
+                        Modifier.width(54.dp * 7),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
