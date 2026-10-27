@@ -9,6 +9,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.jondude1.deskglass.MainViewModel
 import java.time.LocalDateTime
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.delay
 
 private const val ROTATE_MS = 17_500L // inside the 15-20 second window
@@ -71,11 +76,18 @@ fun HomeScreen(
 
     val paused = pausedUntil > System.currentTimeMillis() && active
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // One layout for every screen: the clock and panels shrink or grow with the window,
+        // and the dock keeps readable text (it scrolls sideways on narrow phones).
+        val s = min(maxWidth.value / 1000f, maxHeight.value / 600f).coerceIn(0.4f, 1.4f)
+        val sUi = s.coerceIn(0.72f, 1.2f)
+        val dens = LocalDensity.current
+        val panelDensity = Density(dens.density * s, dens.fontScale)
+        val uiDensity = Density(dens.density * sUi, dens.fontScale)
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(bottom = 120.dp)
+                .padding(bottom = (120f * sUi).dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -86,32 +98,36 @@ fun HomeScreen(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Crossfade(targetState = index, animationSpec = tween(1400), label = "panels") { i ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    when (panels[i]) {
-                        Panel.Clock -> ClockPanel(now, idleLine)
-                        Panel.Weather -> WeatherPanel(weather)
-                        Panel.Calendar -> CalendarPanel(now, events)
+            CompositionLocalProvider(LocalDensity provides panelDensity) {
+                Crossfade(targetState = index, animationSpec = tween(1400), label = "panels") { i ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        when (panels[i]) {
+                            Panel.Clock -> ClockPanel(now, idleLine)
+                            Panel.Weather -> WeatherPanel(weather)
+                            Panel.Calendar -> CalendarPanel(now, events)
+                        }
                     }
                 }
             }
         }
 
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            PageDots(
-                count = panels.size,
-                selected = index,
-                paused = paused,
-                onSelect = {
-                    index = it
-                    pausedUntil = System.currentTimeMillis() + PAUSE_MS
-                },
-            )
-            Dock(onOpen)
+        CompositionLocalProvider(LocalDensity provides uiDensity) {
+            Column(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                PageDots(
+                    count = panels.size,
+                    selected = index,
+                    paused = paused,
+                    onSelect = {
+                        index = it
+                        pausedUntil = System.currentTimeMillis() + PAUSE_MS
+                    },
+                )
+                Dock(onOpen)
+            }
         }
     }
 }

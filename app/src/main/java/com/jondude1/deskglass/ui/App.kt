@@ -124,6 +124,12 @@ fun DeskGlassApp(vm: MainViewModel) {
         }
 
         if (showWallpaper) {
+            val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+            val sUi = minOf(cfg.screenWidthDp / 1000f, cfg.screenHeightDp / 600f).coerceIn(0.72f, 1.2f)
+            val dens = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dens.density * sUi, dens.fontScale)
+            ) {
             if (narration != null) {
                 Text(
                     narration!!,
@@ -133,8 +139,8 @@ fun DeskGlassApp(vm: MainViewModel) {
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = 36.dp, top = 36.dp)
-                        .widthIn(max = 380.dp)
+                        .padding(start = 24.dp, top = 24.dp)
+                        .widthIn(max = minOf(380f, cfg.screenWidthDp * 0.46f / sUi).dp)
                         .background(Color(0xCC05070D), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
@@ -142,8 +148,9 @@ fun DeskGlassApp(vm: MainViewModel) {
             GlassButton(
                 "Open village",
                 { screen = Screen.Village },
-                modifier = Modifier.align(Alignment.TopEnd).padding(end = 36.dp, top = 36.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 24.dp, top = 24.dp),
             )
+            }
         }
 
         if (dim > 0f) {
