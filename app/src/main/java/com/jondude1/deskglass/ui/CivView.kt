@@ -311,6 +311,21 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // rain
+    if (sim.raining()) {
+        drawRect(Color(0xFF203050).copy(alpha = 0.16f))
+        for (i in 0 until 90) {
+            val rx = ((cellHash(i, 5) % 1000) / 1000f) * size.width
+            val ry = ((((cellHash(i, 11) % 1000) / 1000f) * size.height + t * ts * 14f) % size.height)
+            drawLine(
+                Color(0xFFB8D4F0).copy(alpha = 0.5f),
+                Offset(rx, ry),
+                Offset(rx - ts * 0.15f, ry + ts * 0.5f),
+                strokeWidth = max(1f, ps),
+            )
+        }
+    }
+
     // soft vignette
     drawRect(
         Brush.radialGradient(
@@ -418,14 +433,14 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                     for (v in sim.villagers) {
                         Column {
                             Text(
-                                "${v.name} · ${if (v.action.isEmpty()) "thinking" else v.action.replace('_', ' ')}",
+                                "${v.name} the ${v.job.lowercase()} · ${if (v.action.isEmpty()) "thinking" else v.action.replace('_', ' ')}",
                                 color = Glass.Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium,
                             )
                             if (v.thought.isNotBlank()) {
                                 Text("“${v.thought}”", color = Glass.InkDim, fontSize = 14.sp)
                             }
                             Text(
-                                "hunger ${v.hunger.toInt()} · energy ${v.energy.toInt()}",
+                                "feeling ${sim.mood(v)} · hunger ${v.hunger.toInt()} · energy ${v.energy.toInt()}",
                                 color = Glass.InkFaint, fontSize = 12.sp,
                             )
                         }

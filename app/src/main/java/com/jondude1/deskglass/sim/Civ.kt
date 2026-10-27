@@ -26,14 +26,68 @@ object T {
     const val BUSH = 4
 }
 
-class Building(val type: String, val x: Int, val y: Int)
+class Building(val type: String, val x: Int, val y: Int) {
+    var boostUntil = 0.0
+    var ready = 0
+    var timer = 0f
+}
 
-class Villager(val id: Int, val name: String, val trait: String, val colorIdx: Int) {
+class Persona(val trait: String, val voice: String, val dream: String, val lines: List<String>)
+
+val JOBS = listOf("Woodcutter", "Miner", "Forager", "Farmer", "Builder", "Scout", "Storyteller")
+
+private val PERSONAS = listOf(
+    Persona("a cautious planner who hates running out of food", "speaks carefully in short, anxious sentences and is always counting supplies", "a full storehouse that lasts the whole winter", listOf("Let's count the berries again.", "Better safe than hungry.")),
+    Persona("a restless explorer who gets bored easily", "speaks in excited fragments and is always pointing somewhere", "to see what lies past the far mountains", listOf("I wonder what's over that ridge.", "I can't sit still today.")),
+    Persona("a cheerful chatterbox who loves company", "is chatty, warm and full of exclamations", "a feast where the whole village sings", listOf("Isn't this the best village ever?", "Oh, I have to tell you something!")),
+    Persona("a stubborn builder proud of every plank", "is gruff, proud and blunt", "a great hall with a proper roof", listOf("Built to last, that's how I do it.", "Nobody builds straighter than me.")),
+    Persona("a dreamy poet who watches the sky", "is poetic and a little distant, always noticing the sky", "to write a song about the village", listOf("The clouds look like sleeping sheep.", "The light on the lake... lovely.")),
+    Persona("a practical worker who says little", "is plain and brief and says only what matters", "a village that simply works", listOf("Work won't do itself.", "Fine.")),
+    Persona("a nervous worrier who stockpiles things", "is jittery and always imagines what could go wrong", "to finally feel safe at night", listOf("Did you hear that?", "What if the berries run out?")),
+    Persona("a bold leader who bosses others around", "is commanding and confident and gives orders", "to lead the village to greatness", listOf("Follow me, we have work to do.", "This village will be remembered.")),
+    Persona("a kind caretaker who watches over the others", "is gentle and encouraging and asks how others feel", "that no one in the village goes hungry or lonely", listOf("Have you eaten today?", "You look tired, friend.")),
+    Persona("a grumpy skeptic who doubts every plan", "is dry, sarcastic and complaining", "one day where absolutely nothing goes wrong", listOf("Hmph. We'll see about that.", "Of course it's raining.")),
+)
+
+private val JOB_BLURB = mapOf(
+    "Woodcutter" to "You fell trees and haul timber. Wood is your pride, and you want the village to never run short of it.",
+    "Miner" to "You dig stone from the rocks. Stone makes campfires and strengthens huts, and you take pride in it.",
+    "Forager" to "You pick berries and fish the lake. You keep the village fed.",
+    "Farmer" to "You tend the farms and the harvest. You know crops grow faster when someone looks after them.",
+    "Builder" to "You raise huts, farms and campfires. The village grows only because you build.",
+    "Scout" to "You roam far beyond the village, find caches and warn of wolves, and bring back news.",
+    "Storyteller" to "You keep spirits up: you tell stories by the fire in the evening and chat with everyone.",
+)
+
+private val JOB_LINES = mapOf(
+    "Woodcutter" to listOf("Another tree down.", "My axe needs a whetstone.", "Timber! ...sorry, habit.", "These oaks are stubborn."),
+    "Miner" to listOf("Good solid rock here.", "My back aches, but the stone is fine.", "Stone never lies.", "Found a nice vein."),
+    "Forager" to listOf("These berries are sweet today.", "The fish are biting.", "Never go hungry on my watch.", "More berries than yesterday."),
+    "Farmer" to listOf("The crops look happy.", "A little water, a little patience.", "The soil here is rich.", "Harvest soon."),
+    "Builder" to listOf("Another wall, another day.", "A hut needs a straight roof.", "We could fit one more house.", "Measure twice, hammer once."),
+    "Scout" to listOf("I saw something beyond the hills.", "The wind is strange today.", "No wolves on the ridge. Yet.", "The world is big out there."),
+    "Storyteller" to listOf("That reminds me of a tale...", "Gather round, friends.", "Every village needs its stories.", "Let me tell you a secret."),
+)
+
+private val STORIES = listOf(
+    "Long ago a bear stole a whole winter of berries, and wept about it.",
+    "There was once a tree so tall it scratched the moon.",
+    "I once met a fish who swore it was a king.",
+    "They say the old ruins sing when the wind is just right.",
+    "A traveler once paid me in songs. I'm still rich.",
+    "The first fire in this valley burned for a hundred days.",
+)
+
+class Villager(val id: Int, val name: String, val job: String, val personaIdx: Int) {
+    val persona: Persona get() = PERSONAS[personaIdx % PERSONAS.size]
+    val trait: String get() = persona.trait
+    val colorIdx: Int get() = JOBS.indexOf(job).coerceAtLeast(0)
     var x = 0f
     var y = 0f
     var hunger = 20f
     var energy = 90f
     var hp = 100f
+    var happiness = 60f
     var action = ""
     var phase = "idle" // idle | walking | working | sleeping
     var path = IntArray(0)
@@ -49,7 +103,17 @@ class Villager(val id: Int, val name: String, val trait: String, val colorIdx: I
     var idleFor = 0f
     var waiting = false
     var facing = 1
+    var replyIn = 0f
+    var replyText = ""
     val heard = ArrayList<String>()
+    val memories = ArrayList<String>()
+    val recent = ArrayList<String>()
+    val affinity = HashMap<Int, Int>()
+
+    fun remember(text: String) {
+        memories.add(text)
+        while (memories.size > 6) memories.removeAt(0)
+    }
 }
 
 /** Whatever answers the villagers' questions: the local model, or Claude through the saved key. */
@@ -61,25 +125,9 @@ private val NAMES = listOf(
     "Mira", "Tobin", "Edda", "Rook", "Wren", "Bram", "Isla", "Finn", "Odette", "Cass", "Hugo", "Nell",
     "Pike", "Sorrel", "Dov", "Lark", "Ember", "Quill", "Tamsin", "Gideon", "Juno", "Alder", "Pip", "Vesna",
 )
-private val TRAITS = listOf(
-    "a cautious planner who hates running out of food",
-    "a restless explorer who gets bored easily",
-    "a cheerful chatterbox who loves company",
-    "a stubborn builder proud of every hut",
-    "a dreamy poet who watches the sky",
-    "a practical worker who says little",
-    "a nervous worrier who stockpiles things",
-    "a bold leader who bosses others around",
-    "a kind caretaker who watches over the others",
-    "a grumpy skeptic who doubts every plan",
-)
-private val SMALL_TALK = listOf(
-    "Fine day for work.", "I could eat a whole bush of berries.", "Have you seen the tall trees to the east?",
-    "We should build more huts.", "My feet hurt.", "Do you think the lake has fish?", "Let's not run out of wood.",
-)
 private val ACTIONS = setOf(
     "gather_wood", "gather_stone", "gather_food", "build_hut", "build_farm", "build_campfire",
-    "eat", "sleep", "talk", "wander",
+    "eat", "sleep", "talk", "wander", "fish", "tend_farm", "explore", "tell_story", "huddle",
 )
 
 private val DX = intArrayOf(1, -1, 0, 0)
@@ -97,7 +145,7 @@ class CivSim(
     val villagers = ArrayList<Villager>()
     val log = ArrayList<String>()
     var wood = 4
-    var stone = 0
+    var stone = 2
     var food = 6
     var time = DAY_LEN * 0.08
     var brain = "starting…"
@@ -167,7 +215,7 @@ class CivSim(
         occupied.fill(false)
         reserved.clear()
         wood = 4
-        stone = 0
+        stone = 2
         food = 6
         time = DAY_LEN * 0.08
         val e = noise(rnd, 4)
@@ -226,7 +274,16 @@ class CivSim(
         val used = villagers.map { it.name }.toSet()
         val pool = NAMES.filter { it !in used }.ifEmpty { NAMES }
         val name = pool[rnd.nextInt(pool.size)]
-        val v = Villager(nextId++, name, TRAITS[rnd.nextInt(TRAITS.size)], rnd.nextInt(8))
+        val first = listOf("Woodcutter", "Forager", "Builder", "Scout")
+        val job = if (villagers.size < first.size) first[villagers.size] else {
+            val counts = JOBS.associateWith { j -> villagers.count { it.job == j } }
+            val low = counts.values.minOrNull() ?: 0
+            val choices = JOBS.filter { counts[it] == low }
+            choices[rnd.nextInt(choices.size)]
+        }
+        val usedP = villagers.map { it.personaIdx }.toSet()
+        val freeP = PERSONAS.indices.filter { it !in usedP }.ifEmpty { PERSONAS.indices.toList() }
+        val v = Villager(nextId++, name, job, freeP[rnd.nextInt(freeP.size)])
         val fire = buildings.firstOrNull { it.type == "campfire" }
         v.x = (fire?.x ?: GW / 2) + 0.5f + (rnd.nextFloat() - 0.5f) * 3f
         v.y = (fire?.y ?: GH / 2) + 0.5f + (rnd.nextFloat() - 0.5f) * 3f
@@ -394,6 +451,24 @@ class CivSim(
         return best
     }
 
+    private fun nearestShore(v: Villager): Int {
+        var best = -1
+        var bd = Float.MAX_VALUE
+        for (y in 0 until GH) for (x in 0 until GW) {
+            val i = y * GW + x
+            if (tiles[i] == T.WATER || occupied[i]) continue
+            val nearWater = (x > 0 && tiles[i - 1] == T.WATER) || (x < GW - 1 && tiles[i + 1] == T.WATER) ||
+                (y > 0 && tiles[i - GW] == T.WATER) || (y < GH - 1 && tiles[i + GW] == T.WATER)
+            if (!nearWater) continue
+            val d = hypot(x + 0.5f - v.x, y + 0.5f - v.y)
+            if (d < bd) {
+                bd = d
+                best = i
+            }
+        }
+        return best
+    }
+
     private fun startAction(v: Villager, action: String, target: String): Boolean {
         when (action) {
             "gather_wood", "gather_stone", "gather_food" -> {
@@ -408,16 +483,16 @@ class CivSim(
             }
             "build_hut", "build_farm", "build_campfire" -> {
                 val ok = when (action) {
-                    "build_hut" -> wood >= 6
+                    "build_hut" -> wood >= 6 && stone >= 2
                     "build_farm" -> wood >= 4
-                    else -> stone >= 3
+                    else -> stone >= 3 && count("campfire") < 3
                 }
                 if (!ok) return false
                 val site = findSite()
                 if (site < 0) return false
                 if (!go(v, action, site)) return false
                 when (action) {
-                    "build_hut" -> wood -= 6
+                    "build_hut" -> { wood -= 6; stone -= 2 }
                     "build_farm" -> wood -= 4
                     else -> stone -= 3
                 }
@@ -440,9 +515,9 @@ class CivSim(
             }
             "talk" -> {
                 val other = villagers.firstOrNull { it !== v && it.name.equals(target.trim(), ignoreCase = true) }
-                    ?: return false
+                    ?: friendFor(v) ?: return false
                 v.talkTo = other
-                if (v.talkMsg.isBlank()) v.talkMsg = SMALL_TALK[rnd.nextInt(SMALL_TALK.size)]
+                if (v.talkMsg.isBlank()) v.talkMsg = lineFor(v)
                 return go(v, "talk", cellOf(other))
             }
             "wander" -> {
@@ -453,6 +528,29 @@ class CivSim(
                     if (!blocked(i) && go(v, "wander", i)) return true
                 }
                 return false
+            }
+            "fish" -> {
+                val i = nearestShore(v)
+                if (i < 0) return false
+                return go(v, "fish", i)
+            }
+            "tend_farm" -> {
+                val b = nearestBuilding(v, "farm") ?: return false
+                return go(v, "tend_farm", b.y * GW + b.x)
+            }
+            "explore" -> {
+                for (k in 0 until 14) {
+                    val x = rnd.nextInt(GW - 2) + 1
+                    val y = rnd.nextInt(GH - 2) + 1
+                    val i = y * GW + x
+                    if (blocked(i) || hypot(x + 0.5f - v.x, y + 0.5f - v.y) < 12f) continue
+                    if (go(v, "explore", i)) return true
+                }
+                return false
+            }
+            "tell_story", "huddle" -> {
+                val b = nearestBuilding(v, "campfire") ?: return false
+                return go(v, action, b.y * GW + b.x)
             }
         }
         return false
@@ -475,6 +573,34 @@ class CivSim(
             v.action.startsWith("build_") -> { v.phase = "working"; v.workLeft = 6f }
             v.action == "eat" -> { v.phase = "working"; v.workLeft = 2f }
             v.action == "sleep" -> v.phase = "sleeping"
+            v.action == "fish" -> { v.phase = "working"; v.workLeft = 4f }
+            v.action == "tend_farm" -> { v.phase = "working"; v.workLeft = 5f }
+            v.action == "explore" -> { v.phase = "working"; v.workLeft = 5f }
+            v.action == "huddle" -> { v.phase = "working"; v.workLeft = 7f }
+            v.action == "tell_story" -> {
+                v.phase = "working"
+                v.workLeft = 9f
+                val story = STORIES[rnd.nextInt(STORIES.size)]
+                v.say = story.take(90)
+                v.sayLeft = 8f
+                addLog("${v.name} tells a story by the fire.")
+                narrate("${v.name} tells a story by the fire")
+                val listeners = villagers.filter {
+                    it !== v && it.phase != "sleeping" && hypot(it.x - v.x, it.y - v.y) < 9f
+                }
+                for (l in listeners) {
+                    l.happiness = min(100f, l.happiness + 8f)
+                    l.affinity[v.id] = (l.affinity[v.id] ?: 0) + 1
+                    v.affinity[l.id] = (v.affinity[l.id] ?: 0) + 1
+                }
+                if (listeners.isNotEmpty()) {
+                    val l = listeners[rnd.nextInt(listeners.size)]
+                    l.replyIn = 3f
+                    l.replyText = listOf("Ooh, tell it again!", "Ha! I never heard that one.", "Is that really true?", "Lovely tale.")[rnd.nextInt(4)]
+                    l.remember("${v.name} told a story by the fire")
+                }
+                v.happiness = min(100f, v.happiness + 5f)
+            }
             v.action == "talk" -> {
                 val o = v.talkTo
                 if (o != null) {
@@ -484,6 +610,24 @@ class CivSim(
                     while (o.heard.size > 3) o.heard.removeAt(0)
                     addLog("${v.name} to ${o.name}: ${v.talkMsg}")
                     narrate("${v.name} to ${o.name}: ${v.talkMsg}")
+                    val argue = v.persona.trait.contains("grumpy") && rnd.nextInt(3) == 0
+                    if (argue) {
+                        v.affinity[o.id] = (v.affinity[o.id] ?: 0) - 2
+                        o.affinity[v.id] = (o.affinity[v.id] ?: 0) - 2
+                        o.happiness = max(0f, o.happiness - 6f)
+                        o.replyText = "Oh, give it a rest, ${v.name}."
+                        addLog("${v.name} and ${o.name} bicker.")
+                        o.remember("${v.name} was rude to me")
+                    } else {
+                        v.affinity[o.id] = (v.affinity[o.id] ?: 0) + 1
+                        o.affinity[v.id] = (o.affinity[v.id] ?: 0) + 1
+                        v.happiness = min(100f, v.happiness + 4f)
+                        o.happiness = min(100f, o.happiness + 4f)
+                        o.replyText = o.persona.lines[rnd.nextInt(o.persona.lines.size)]
+                        o.remember("${v.name} chatted with me")
+                    }
+                    o.replyIn = 2.5f
+                    v.remember("talked with ${o.name}")
                 }
                 finish(v)
             }
@@ -507,7 +651,10 @@ class CivSim(
                     }
                     if (amt[i] == 0 && tiles[i] != T.BUSH) tiles[i] = T.GRASS
                 }
-                if (v.gathered >= 4 || i < 0 || amt[i] <= 0) finish(v) else v.workLeft = 3f
+                if (v.gathered >= 4 || i < 0 || amt[i] <= 0) {
+                    if (v.gathered >= 3) v.remember("brought back ${v.gathered} ${v.action.removePrefix("gather_")}")
+                    finish(v)
+                } else v.workLeft = 3f
             }
             "build_hut", "build_farm", "build_campfire" -> {
                 val i = v.targetTile
@@ -517,43 +664,175 @@ class CivSim(
                     addBuilding(type, i % GW, i / GW)
                     addLog("${v.name} built a $type.")
                     narrate("${v.name} finishes a $type")
+                    v.remember("built a $type")
+                    v.happiness = min(100f, v.happiness + 8f)
                 }
                 finish(v)
             }
             "eat" -> {
                 if (food > 0) {
                     food--
+                    if (v.hunger > 55f) v.happiness = min(100f, v.happiness + 4f)
                     v.hunger = max(0f, v.hunger - 45f)
                 }
                 finish(v)
             }
+            "fish" -> {
+                v.gathered++
+                if (rnd.nextInt(4) != 0) food++
+                if (v.gathered >= 3) {
+                    v.remember("fished at the lake")
+                    finish(v)
+                } else v.workLeft = 4f
+            }
+            "tend_farm" -> {
+                val b = buildings.firstOrNull { it.type == "farm" && it.y * GW + it.x == v.targetTile }
+                if (b != null) {
+                    val got = b.ready * 2 + 1
+                    food += got
+                    b.ready = 0
+                    b.boostUntil = time + 120.0
+                    addLog("${v.name} tended the farm (+$got food).")
+                    v.remember("tended the farm")
+                    v.happiness = min(100f, v.happiness + 3f)
+                }
+                finish(v)
+            }
+            "explore" -> {
+                val roll = rnd.nextInt(100)
+                when {
+                    roll < 45 -> {
+                        val kind = rnd.nextInt(3)
+                        val n = 3 + rnd.nextInt(2)
+                        val what = when (kind) {
+                            0 -> { wood += n; "wood" }
+                            1 -> { stone += n; "stone" }
+                            else -> { food += n; "food" }
+                        }
+                        addLog("${v.name} found an abandoned cache beyond the hills (+$n $what).")
+                        narrate("${v.name} found a cache of $what")
+                        v.remember("found a cache of $what out in the hills")
+                        v.happiness = min(100f, v.happiness + 6f)
+                    }
+                    roll < 60 -> {
+                        alertUntil = max(alertUntil, time + 70.0)
+                        addLog("${v.name} spotted wolf tracks near the village!")
+                        narrate("${v.name} spotted wolf tracks")
+                        v.remember("saw wolf tracks and warned everyone")
+                    }
+                    roll < 75 -> {
+                        food += 3
+                        addLog("${v.name} found a hidden berry grove (+3 food).")
+                        v.remember("found a hidden berry grove")
+                    }
+                    else -> {
+                        addLog("${v.name} scouted the hills but found only wind.")
+                        v.remember("scouted the hills, nothing to report")
+                    }
+                }
+                finish(v)
+            }
+            "huddle" -> {
+                v.happiness = min(100f, v.happiness + 2f)
+                finish(v)
+            }
+            "tell_story" -> finish(v)
             else -> finish(v)
         }
     }
 
     // ---- brains ----
 
-    private fun ruleDecision(v: Villager): Pair<String, String> {
-        val others = villagers.filter { it !== v }
-        if (v.hunger >= 60f && food > 0) return "eat" to ""
-        if (v.energy < 25f || (isNight() && v.energy < 92f)) return "sleep" to ""
-        if (food < 4 + villagers.size / 2) return "gather_food" to ""
-        if (count("hut") * 2 < villagers.size + 2 && wood >= 6) return "build_hut" to ""
-        if (count("farm") < 1 + villagers.size / 3 && wood >= 4) return "build_farm" to ""
-        if (wood < 12) return "gather_wood" to ""
-        if (stone < 3 && count("campfire") < 2) return "gather_stone" to ""
-        if (stone >= 3 && count("campfire") < 2) return "build_campfire" to ""
-        val roll = rnd.nextInt(5)
-        if (roll == 0 && others.isNotEmpty()) return "talk" to others[rnd.nextInt(others.size)].name
-        if (roll == 1) return "gather_food" to ""
-        if (roll == 2) return "wander" to ""
-        return "gather_wood" to ""
+    private fun alert() = time < alertUntil
+    fun raining() = time < rainUntil
+    private fun festival() = time < festivalUntil
+
+    fun mood(v: Villager): String = when {
+        v.hunger > 85f -> "starving"
+        v.energy < 20f -> "exhausted"
+        alert() && v.happiness < 60f -> "scared"
+        v.happiness > 75f -> "joyful"
+        v.happiness > 55f -> "content"
+        v.happiness > 35f -> "restless"
+        else -> "gloomy"
     }
 
-    private fun applyDecision(v: Villager, action: String, target: String, say: String, thought: String) {
+    private fun pick(vararg w: Pair<String, Int>): String {
+        var total = 0
+        for (p in w) total += p.second
+        var roll = rnd.nextInt(max(1, total))
+        for (p in w) {
+            if (roll < p.second) return p.first
+            roll -= p.second
+        }
+        return w[0].first
+    }
+
+    private fun friendFor(v: Villager): Villager? {
+        val others = villagers.filter { it !== v }
+        if (others.isEmpty()) return null
+        if (rnd.nextInt(3) == 0) return others[rnd.nextInt(others.size)]
+        return others.maxByOrNull { (v.affinity[it.id] ?: 0) * 2 + rnd.nextInt(5) }
+    }
+
+    private fun lineFor(v: Villager): String {
+        if (alert() && rnd.nextBoolean()) {
+            return listOf("Did you hear those wolves?", "Stay close to the fire.", "Something is out there...")[rnd.nextInt(3)]
+        }
+        if (raining() && rnd.nextInt(3) == 0) {
+            return listOf("This rain is relentless.", "Good weather for the farms, at least.", "My boots are soaked.")[rnd.nextInt(3)]
+        }
+        val pool = if (rnd.nextBoolean()) (JOB_LINES[v.job] ?: v.persona.lines) else v.persona.lines
+        return pool[rnd.nextInt(pool.size)]
+    }
+
+    private fun ruleDecision(v: Villager): Pair<String, String> {
+        val others = villagers.filter { it !== v }
+        val hasShore = nearestShore(v) >= 0
+        if (v.hunger >= 60f && food > 0) return "eat" to ""
+        if (v.energy < 25f || (isNight() && v.energy < 92f)) return "sleep" to ""
+        if (alert() && v.job != "Scout") return "huddle" to ""
+        if (festival()) {
+            return if (rnd.nextInt(3) == 0 && others.isNotEmpty()) "talk" to (friendFor(v)?.name ?: "") else "huddle" to ""
+        }
+        if (food < 3) {
+            return (if (v.job == "Farmer" && count("farm") > 0) "tend_farm" else if (hasShore && rnd.nextBoolean()) "fish" else "gather_food") to ""
+        }
+        val needHut = count("hut") * 2 < villagers.size + 2
+        if (needHut && wood >= 6 && stone >= 2 && (v.job == "Builder" || rnd.nextInt(5) == 0)) return "build_hut" to ""
+        if (count("farm") < 1 + villagers.size / 3 && wood >= 4 && (v.job == "Builder" || v.job == "Farmer" || rnd.nextInt(6) == 0)) return "build_farm" to ""
+        if (stone >= 3 && count("campfire") < 2 && v.job != "Scout") return "build_campfire" to ""
+        if (partOfDay() == "evening" && v.job == "Storyteller") return "tell_story" to ""
+        if (partOfDay() == "evening" && others.isNotEmpty() && rnd.nextInt(3) == 0) return "talk" to (friendFor(v)?.name ?: "")
+        val farms = count("farm") > 0
+        val act = when (v.job) {
+            "Woodcutter" -> pick("gather_wood" to 7, "talk" to 1, "wander" to 1, "gather_food" to (if (food < 8) 2 else 0))
+            "Miner" -> pick("gather_stone" to (if (stone < 12) 7 else 2), "gather_wood" to (if (wood < 12) 3 else 1), "talk" to 1, "wander" to 1)
+            "Forager" -> pick("gather_food" to 4, "fish" to (if (hasShore) 3 else 0), "talk" to 1, "wander" to 1)
+            "Farmer" -> pick("tend_farm" to (if (farms) 6 else 0), "gather_food" to 2, "gather_wood" to (if (farms) 0 else 4), "talk" to 1)
+            "Builder" -> pick("gather_wood" to 4, "gather_stone" to (if (stone < 4) 3 else 1), "talk" to 1, "wander" to 1)
+            "Scout" -> pick("explore" to 4, "gather_food" to 2, "talk" to 2, "wander" to 1)
+            else -> pick("talk" to 4, "gather_food" to 2, "tell_story" to (if (v.energy > 40f) 1 else 0), "wander" to 1)
+        }
+        return act to (if (act == "talk") (friendFor(v)?.name ?: "") else "")
+    }
+
+    private fun applyDecision(v: Villager, actionIn: String, targetIn: String, say: String, thought: String) {
         v.waiting = false
+        var action = actionIn
+        var target = targetIn
+        // don't do the exact same thing four times in a row
+        val survival = action == "eat" || action == "sleep"
+        if (!survival && v.recent.size >= 3 && v.recent.takeLast(3).all { it == action }) {
+            if (others().isNotEmpty() && rnd.nextBoolean()) {
+                action = "talk"
+                target = friendFor(v)?.name ?: ""
+            } else {
+                action = "wander"
+            }
+        }
         if (thought.isNotBlank()) v.thought = thought.take(100)
-        if (action == "talk") v.talkMsg = say.ifBlank { SMALL_TALK[rnd.nextInt(SMALL_TALK.size)] }.take(90)
+        if (action == "talk") v.talkMsg = say.ifBlank { lineFor(v) }.take(90)
         else if (say.isNotBlank()) {
             v.say = say.take(90)
             v.sayLeft = 7f
@@ -562,37 +841,56 @@ class CivSim(
         var ok = action in ACTIONS && startAction(v, action, target)
         if (!ok) {
             val (a, t) = ruleDecision(v)
+            action = a
             ok = startAction(v, a, t)
-            if (!ok) ok = startAction(v, "wander", "")
+            if (!ok) {
+                action = "wander"
+                ok = startAction(v, "wander", "")
+            }
         }
         if (!ok) {
             v.idleFor = -3f
-        } else if (v.thought.isNotBlank()) {
-            narrate("${v.name}: ${v.thought}")
+        } else {
+            v.recent.add(action)
+            while (v.recent.size > 5) v.recent.removeAt(0)
+            if (v.thought.isNotBlank()) narrate("${v.name}: ${v.thought}")
         }
     }
 
+    private fun others(): List<Villager> = villagers
+
     private fun buildPrompt(v: Villager): String {
         val sb = StringBuilder()
-        sb.append("Day ${day()}, ${partOfDay()}.\n")
-        sb.append("You are ${v.name}, ${v.trait}.\n")
-        sb.append("Hunger ${v.hunger.toInt()}/100 (eat when above 60). Energy ${v.energy.toInt()}/100 (sleep when low or at night).\n")
+        sb.append("Day ${day()}, ${partOfDay()}.")
+        if (raining()) sb.append(" It is raining.")
+        if (alert()) sb.append(" WOLVES are howling nearby, the village is on alert.")
+        if (festival()) sb.append(" The village is holding a feast by the fire.")
+        sb.append("\n")
+        sb.append("You are ${v.name}, the village ${v.job}. ${JOB_BLURB[v.job] ?: ""}\n")
+        sb.append("Personality: ${v.trait}. You ${v.persona.voice}. Your dream: ${v.persona.dream}.\n")
+        sb.append("Mood: ${mood(v)}. Hunger ${v.hunger.toInt()}/100 (eat above 60). Energy ${v.energy.toInt()}/100 (sleep when low or at night).\n")
         sb.append("Village stock: wood $wood, stone $stone, food $food. ")
         sb.append("Buildings: ${count("hut")} huts, ${count("farm")} farms, ${count("campfire")} campfires. ")
         sb.append("${villagers.size} villagers.\n")
         val others = villagers.filter { it !== v }
         if (others.isNotEmpty()) {
             sb.append("Others: " + others.joinToString(", ") {
-                "${it.name} (${if (it.action.isEmpty()) "idle" else it.action.replace('_', ' ')})"
+                "${it.name} the ${it.job} (${if (it.action.isEmpty()) "idle" else it.action.replace('_', ' ')})"
             } + "\n")
+            val close = others.filter { (v.affinity[it.id] ?: 0) >= 2 }.joinToString(", ") { it.name }
+            val rivals = others.filter { (v.affinity[it.id] ?: 0) <= -2 }.joinToString(", ") { it.name }
+            if (close.isNotEmpty()) sb.append("Your friends: $close.\n")
+            if (rivals.isNotEmpty()) sb.append("You don't get along with: $rivals.\n")
         }
+        if (v.memories.isNotEmpty()) sb.append("Your recent memories: " + v.memories.joinToString("; ") + "\n")
         if (v.heard.isNotEmpty()) sb.append("You recently heard: " + v.heard.joinToString(" | ") + "\n")
+        if (v.recent.isNotEmpty()) sb.append("Your last actions: " + v.recent.joinToString(", ") + " (vary what you do).\n")
         val recent = log.takeLast(4)
-        if (recent.isNotEmpty()) sb.append("Recent news: " + recent.joinToString(" | ") + "\n")
+        if (recent.isNotEmpty()) sb.append("Recent village news: " + recent.joinToString(" | ") + "\n")
         if (godMsg.isNotBlank() && time < godUntil) {
             sb.append("A booming voice from the sky said to everyone: \"$godMsg\" (consider it seriously).\n")
         }
-        sb.append("What do you do next?")
+        sb.append("What do you do next? Stay in character.")
         return sb.toString()
     }
 
@@ -687,6 +985,64 @@ class CivSim(
 
     // ---- tick ----
 
+    private var nextEventAt = DAY_LEN * 0.3
+    private var alertUntil = 0.0
+    private var rainUntil = 0.0
+    private var festivalUntil = 0.0
+
+    private fun event(text: String) {
+        addLog(text)
+        lastNarrateAt = 0L
+        narrate(text)
+        for (v in villagers) v.remember(text.take(70))
+    }
+
+    private fun eventTick() {
+        if (time < nextEventAt || villagers.size < 2) return
+        nextEventAt = time + 150.0 + rnd.nextInt(150)
+        when (rnd.nextInt(6)) {
+            0 -> {
+                for (i in tiles.indices) if (tiles[i] == T.BUSH) amt[i] = 3
+                event("The bushes burst with ripe berries.")
+            }
+            1 -> {
+                if (villagers.size < 12 && rnd.nextInt(3) == 0) {
+                    val n = spawnVillager()
+                    event("A wandering ${n.job.lowercase()} named ${n.name} asks to stay.")
+                } else {
+                    food += 3
+                    wood += 3
+                    event("A friendly traveler shares supplies and stories.")
+                }
+            }
+            2 -> {
+                alertUntil = time + 80.0
+                for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
+                event("Wolves howl beyond the trees! Everyone stay near the fire.")
+            }
+            3 -> {
+                rainUntil = time + 90.0
+                event("Rain begins to fall.")
+            }
+            4 -> {
+                if (food >= 8) {
+                    food -= 4
+                    festivalUntil = time + 45.0
+                    for (v in villagers) v.happiness = min(100f, v.happiness + 20f)
+                    event("The villagers hold a small harvest feast around the fire.")
+                } else {
+                    stone += 3
+                    event("Someone finds a pile of good stone by the stream.")
+                }
+            }
+            else -> {
+                val v = villagers[rnd.nextInt(villagers.size)]
+                wood += 4
+                event("${v.name} stumbles on a stash of seasoned timber (+4 wood).")
+            }
+        }
+    }
+
     fun tick(dtIn: Float) {
         val dt = dtIn.coerceIn(0f, 0.1f)
         time += dt
@@ -718,10 +1074,19 @@ class CivSim(
             }
         }
 
-        farmClock += dt
-        if (farmClock > 20f) {
-            farmClock = 0f
-            if (villagers.isNotEmpty() && food < 40) food += count("farm")
+        for (b in buildings) {
+            if (b.type != "farm") continue
+            var interval = if (time < b.boostUntil) 12f else 40f
+            if (raining()) interval *= 0.7f
+            b.timer += dt
+            if (b.timer >= interval) {
+                b.timer = 0f
+                b.ready++
+                if (b.ready >= 4) {
+                    food += b.ready
+                    b.ready = 0
+                }
+            }
         }
 
         if (time - lastBirth > 150.0 && villagers.size < 12 && food >= 5 &&
@@ -729,10 +1094,11 @@ class CivSim(
         ) {
             lastBirth = time
             val n = spawnVillager()
-            addLog("${n.name} arrives and joins the village.")
+            addLog("${n.name} the ${n.job.lowercase()} arrives and joins the village.")
             narrate("${n.name} joins the village")
         }
 
+        eventTick()
         schedule()
     }
 
@@ -741,10 +1107,12 @@ class CivSim(
         v.hunger = min(100f, v.hunger + (if (asleep) 0.12f else 0.33f) * dt)
         if (!asleep) v.energy = max(0f, v.energy - 0.2f * dt)
         if (v.hunger >= 100f) v.hp -= 1.2f * dt else if (v.hunger < 70f && v.hp < 100f) v.hp = min(100f, v.hp + 0.4f * dt)
+        v.happiness += (55f - v.happiness) * 0.01f * dt
+        if (v.hunger > 85f) v.happiness -= 0.5f * dt
+        v.happiness = v.happiness.coerceIn(0f, 100f)
         if (v.hp <= 0f) {
             villagers.remove(v)
-            addLog("${v.name} starved. The village mourns.")
-            narrate("${v.name} has died of hunger")
+            event("${v.name} the ${v.job.lowercase()} starved. The village mourns.")
             return
         }
         if (v.energy <= 0f && !asleep) {
@@ -755,6 +1123,14 @@ class CivSim(
         if (v.sayLeft > 0f) {
             v.sayLeft -= dt
             if (v.sayLeft <= 0f) v.say = ""
+        }
+        if (v.replyIn > 0f) {
+            v.replyIn -= dt
+            if (v.replyIn <= 0f && v.replyText.isNotBlank()) {
+                v.say = v.replyText.take(90)
+                v.sayLeft = 6f
+                v.replyText = ""
+            }
         }
         when (v.phase) {
             "idle" -> v.idleFor += dt
@@ -767,6 +1143,7 @@ class CivSim(
                 if (v.energy >= 100f || (v.energy >= 85f && !isNight())) {
                     v.energy = min(100f, v.energy)
                     v.thought = "feeling rested"
+                    if (inHut) v.happiness = min(100f, v.happiness + 5f)
                     finish(v)
                 }
             }
@@ -814,8 +1191,8 @@ class CivSim(
             val vs = JSONArray()
             villagers.forEach {
                 vs.put(
-                    JSONObject().put("id", it.id).put("name", it.name).put("trait", it.trait)
-                        .put("c", it.colorIdx).put("x", it.x.toDouble()).put("y", it.y.toDouble())
+                    JSONObject().put("id", it.id).put("name", it.name).put("job", it.job).put("p", it.personaIdx)
+                        .put("happy", it.happiness.toDouble()).put("x", it.x.toDouble()).put("y", it.y.toDouble())
                         .put("hunger", it.hunger.toDouble()).put("energy", it.energy.toDouble())
                         .put("hp", it.hp.toDouble())
                 )
@@ -858,7 +1235,8 @@ class CivSim(
             val vs = o.getJSONArray("villagers")
             for (i in 0 until vs.length()) {
                 val j = vs.getJSONObject(i)
-                val v = Villager(j.getInt("id"), j.getString("name"), j.getString("trait"), j.getInt("c"))
+                val v = Villager(j.getInt("id"), j.getString("name"), j.optString("job", JOBS[i % JOBS.size]), j.optInt("p", i))
+                v.happiness = j.optDouble("happy", 60.0).toFloat()
                 v.x = j.getDouble("x").toFloat()
                 v.y = j.getDouble("y").toFloat()
                 v.hunger = j.getDouble("hunger").toFloat()
@@ -876,9 +1254,9 @@ class CivSim(
     }
 
     companion object {
-        private const val SYSTEM = """You control one villager in a small pixel-art village that is trying to survive and grow. Think and act like that character. Reply with ONLY a JSON object, no other text:
-{"thought": "<your private thought, first person, under 12 words>", "action": "<one action>", "target": "<villager name, only for talk>", "say": "<a short sentence you say aloud, or empty>"}
-Actions: gather_wood, gather_stone, gather_food (berries), build_hut (costs 6 wood), build_farm (costs 4 wood, makes food over time), build_campfire (costs 3 stone), eat (needs food in stock), sleep, talk (set target and say), wander.
-Stay alive: eat when hungry, sleep when tired or at night. The village needs food, wood for huts, and huts so newcomers can join. Coordinate with others. Do not repeat the same thing forever."""
+        private const val SYSTEM = """You play one villager in a small pixel-art village, as a distinct character with a job, a personality, a way of speaking and a dream. Reply with ONLY a JSON object, no other text:
+{"thought": "<your private thought, first person, under 14 words, in your voice>", "action": "<one action>", "target": "<villager name, only for talk>", "say": "<one short sentence you say aloud in your own voice, or empty>"}
+Actions: gather_wood, gather_stone, gather_food (berries), fish (at the lake), tend_farm (needs a farm), explore (scouting far away), tell_story (at the fire, lifts everyone's spirits), huddle (stay by the fire), build_hut (6 wood + 2 stone), build_farm (4 wood), build_campfire (3 stone), eat (needs food in stock), sleep, talk (set target and say), wander.
+Mostly do the work of your job, but react to your needs, the weather, wolves, news and what others say. Talk about what you have seen, feel or remember, with opinions and feelings. Never repeat a line or an action you just did, and vary your sentences. Stay alive: eat when hungry, sleep when tired or at night."""
     }
 }
