@@ -99,7 +99,12 @@ fun CivCanvas(
             val n = androidx.compose.runtime.withFrameNanos { it }
             if (last != 0L) {
                 try {
-                    sim.tick(((n - last) / 1_000_000_000.0).toFloat())
+                    var left = ((n - last) / 1_000_000_000.0).toFloat() * sim.speed
+                    while (left > 0f) {
+                        val step = min(left, 0.05f)
+                        sim.tick(step)
+                        left -= step
+                    }
                 } catch (e: Exception) {
                     sim.guard(e)
                 }
@@ -973,6 +978,8 @@ private fun DrawScope.drawWorld(
 
 /** The full-screen village: watch, read what everyone is thinking, and speak to the village. */
 /** What is threatening the village right now, or null when all is calm. */
+private fun nextSpeed(s: Int) = when (s) { 1 -> 2; 2 -> 5; else -> 1 }
+
 private fun threatText(sim: CivSim): String? {
     val parts = ArrayList<String>()
     val groups = sim.predators.groupBy { it.kind }
@@ -1040,6 +1047,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
         Box(Modifier.fillMaxSize()) {
             CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
             GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
+            GlassButton("Speed ${sim.speed}x", { sim.speed = nextSpeed(sim.speed) }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
             Text(
                 "${sim.ageName()} · day ${sim.day()}",
                 color = Glass.InkDim,
@@ -1063,6 +1071,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
     Column(Modifier.fillMaxSize()) {
         BackBar("Village", onBack, trailing = {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GlassButton("Speed ${sim.speed}x", { sim.speed = nextSpeed(sim.speed) })
                 GlassButton("Fullscreen", { onFullscreen(true) }, filled = true)
                 GlassButton(if (confirmReset) "Tap again to start over" else "Start over", {
                     if (confirmReset) {

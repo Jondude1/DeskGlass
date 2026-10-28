@@ -180,6 +180,8 @@ class CivSim(
     var outsideSnow = false
     val chronicle = ArrayList<String>()
     var time = DAY_LEN * 0.08
+    /** Time multiplier for the watcher: 1, 2 or 5. Not saved. */
+    @Volatile var speed = 1
     var brain = "starting…"
         private set
 
