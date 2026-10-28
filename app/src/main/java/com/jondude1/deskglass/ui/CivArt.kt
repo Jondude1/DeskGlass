@@ -2,71 +2,105 @@ package com.jondude1.deskglass.ui
 
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import java.util.Random
 
+/** A sprite is drawn on a small grid, then polished to twice that size, so logical size is half the bitmap. */
+val ImageBitmap.lw: Float get() = width / 2f
+val ImageBitmap.lh: Float get() = height / 2f
+
+/** A little "+1" that floats up from a villager who just gathered something. */
+class Floater(val x: Float, val y: Float, val born: Double, val color: Int)
+
 /** All the pixel art for the village, drawn from small text grids when the app starts. */
 class CivArt {
-    private fun sprite(rows: List<String>, pal: Map<Char, Int>): ImageBitmap {
+    private fun sprite(rows: List<String>, pal: Map<Char, Int>, outline: Boolean = true, shade: Boolean = true): ImageBitmap {
         val h = rows.size
-        val w = rows[0].length
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        var w = 1
+        for (r in rows) if (r.length > w) w = r.length
+        val src = IntArray(w * h)
         for (y in 0 until h) for (x in 0 until w) {
-            val c = pal[rows[y].getOrElse(x) { '.' }]
-            if (c != null) bmp.setPixel(x, y, c)
+            src[y * w + x] = pal[rows[y].getOrElse(x) { '.' }] ?: 0
         }
+        val big = PixelFx.polish(src, w, h, outline, shade)
+        val bmp = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(big, 0, w * 2, 0, 0, w * 2, h * 2)
         return bmp.asImageBitmap()
     }
 
-    private fun speckled(seed: Int, base: Int, dark: Int, light: Int): ImageBitmap {
-        val r = Random(seed.toLong())
-        val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
-        for (y in 0 until 16) for (x in 0 until 16) {
-            bmp.setPixel(x, y, when (r.nextInt(13)) {
-                0 -> dark
-                1 -> light
-                else -> base
-            })
-        }
-        return bmp.asImageBitmap()
+    // ---- ground, built in the background from the shape of the land ----
+    @Volatile var ground: List<ImageBitmap>? = null
+    @Volatile var groundSig = 0
+    @Volatile var groundBusy = false
+
+    /** Cells the life layer uses: open water, shoreline water, and plain grass. */
+    var innerWater = IntArray(0)
+    var shoreWater = IntArray(0)
+    var grassCells = IntArray(0)
+    var meadowCells = IntArray(0)
+
+    fun groundImages(frames: Array<IntArray>, w: Int, h: Int): List<ImageBitmap> = frames.map {
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(it, 0, w, 0, 0, w, h)
+        bmp.asImageBitmap()
     }
 
-    private fun grassTile(seed: Int): ImageBitmap {
-        val r = Random(seed.toLong() * 31)
-        val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
-        for (y in 0 until 16) for (x in 0 until 16) {
-            bmp.setPixel(x, y, when (r.nextInt(14)) {
-                0 -> 0xFF4C9650.toInt()
-                1 -> 0xFF67B55F.toInt()
-                else -> 0xFF5AA854.toInt()
-            })
+    fun rebuildDecor(cw: Int, ch: Int, water: BooleanArray, grass: BooleanArray) {
+        fun w(x: Int, y: Int) = x in 0 until cw && y in 0 until ch && water[y * cw + x]
+        val inner = ArrayList<Int>()
+        val shore = ArrayList<Int>()
+        val gr = ArrayList<Int>()
+        val meadow = ArrayList<Int>()
+        for (y in 0 until ch) for (x in 0 until cw) {
+            val i = y * cw + x
+            if (water[i]) {
+                var n = 0
+                if (w(x - 1, y)) n++
+                if (w(x + 1, y)) n++
+                if (w(x, y - 1)) n++
+                if (w(x, y + 1)) n++
+                if (n == 4 && w(x - 1, y - 1) && w(x + 1, y - 1) && w(x - 1, y + 1) && w(x + 1, y + 1)) inner.add(i)
+                else if (n in 1..3) shore.add(i)
+            } else if (grass[i]) {
+                gr.add(i)
+                var ok = true
+                for (dy in -1..1) for (dx in -1..1) {
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= cw || ny >= ch || water[ny * cw + nx] || !grass[ny * cw + nx]) ok = false
+                }
+                if (ok) meadow.add(i)
+            }
         }
-        // a couple of little grass blades
-        for (k in 0 until 3) {
-            val x = 1 + r.nextInt(13)
-            val y = 2 + r.nextInt(12)
-            bmp.setPixel(x, y, 0xFF3F8744.toInt())
-            bmp.setPixel(x, y - 1, 0xFF3F8744.toInt())
-        }
-        return bmp.asImageBitmap()
+        innerWater = inner.toIntArray()
+        shoreWater = shore.toIntArray()
+        grassCells = gr.toIntArray()
+        meadowCells = meadow.toIntArray()
     }
 
-    private fun waterTile(frame: Int): ImageBitmap {
-        val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
-        for (y in 0 until 16) for (x in 0 until 16) {
-            val ripple = ((x + frame * 4 + (y / 4) * 6) % 10) < 2 && y % 4 == 1
-            val deep = ((x / 4 + y / 4) % 2) == 0
-            bmp.setPixel(
-                x, y,
-                if (ripple) 0xFF8CBDE8.toInt() else if (deep) 0xFF2B68AE.toInt() else 0xFF3175BC.toInt()
-            )
-        }
-        return bmp.asImageBitmap()
+    // ---- drop shadows: a black copy of each sprite, flattened and sheared in the draw ----
+    val shadowPaint = android.graphics.Paint()
+    val nightPaint = android.graphics.Paint()
+    val lightPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+    }
+    private val shadowCache = java.util.IdentityHashMap<ImageBitmap, Bitmap>()
+
+    fun shadowOf(sp: ImageBitmap): Bitmap = shadowCache.getOrPut(sp) {
+        val w = sp.width
+        val h = sp.height
+        val px = IntArray(w * h)
+        sp.asAndroidBitmap().getPixels(px, 0, w, 0, 0, w, h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(PixelFx.silhouette(px), 0, w, 0, 0, w, h)
+        bmp
     }
 
-    val grass = List(4) { grassTile(it + 1) }
-    val sand = List(2) { speckled(50 + it, 0xFFE6D394.toInt(), 0xFFD4BE7C.toInt(), 0xFFF2E4B0.toInt()) }
-    val water = List(2) { waterTile(it) }
+    // ---- bits of life that remember a little between frames ----
+    val lastGather = HashMap<Int, Int>()
+    val floaters = ArrayList<Floater>()
 
     val oak = sprite(OAK, mapOf(
         'g' to 0xFF3E8E41.toInt(), 'G' to 0xFF2C6B33.toInt(), 'h' to 0xFF6BB85A.toInt(),
@@ -133,10 +167,12 @@ class CivArt {
     private val chickPal = mapOf('w' to 0xFFF4F0E6.toInt(), 'o' to 0xFFE89A2B.toInt(), 'r' to 0xFFD9373A.toInt(), 'd' to 0xFF222222.toInt(), 'g' to 0xFFC9C3B4.toInt())
     val chicken = listOf(sprite(CHICK1, chickPal), sprite(CHICK2, chickPal))
     private val firePal = mapOf('y' to 0xFFFFE070.toInt(), 'o' to 0xFFFF8A2B.toInt(), 'L' to 0xFF6B4A2B.toInt(), 'l' to 0xFF4A3220.toInt(), 's' to 0xFF8E8E96.toInt())
-    val fire = listOf(sprite(FIRE1, firePal), sprite(FIRE2, firePal))
+    private val rabbitPal = mapOf('b' to 0xFFB59A7A.toInt(), 'e' to 0xFF9A8060.toInt(), 'w' to 0xFFF4F0E6.toInt(), 'n' to 0xFFD99A8A.toInt(), 'd' to 0xFF222222.toInt())
+    val rabbit = listOf(sprite(RABBIT1, rabbitPal), sprite(RABBIT2, rabbitPal))
+    private val duckPal = mapOf('g' to 0xFF2F8F58.toInt(), 'o' to 0xFFE89A2B.toInt(), 'w' to 0xFFF4F0E6.toInt(), 'b' to 0xFFB59A7A.toInt(), 'd' to 0xFF222222.toInt())
+    val duck = listOf(sprite(DUCK1, duckPal), sprite(DUCK2, duckPal))
+    val fire = listOf(sprite(FIRE1, firePal, outline = false, shade = false), sprite(FIRE2, firePal, outline = false, shade = false))
 
-    val desert = List(2) { speckled(70 + it, 0xFFDDB46C.toInt(), 0xFFC79C54.toInt(), 0xFFEBCB8C.toInt()) }
-    val snowTile = List(2) { speckled(80 + it, 0xFFE8EFF6.toInt(), 0xFFCBD9E8.toInt(), 0xFFFFFFFF.toInt()) }
     val cactus = sprite(CACTUS, mapOf('g' to 0xFF4E9E4A.toInt(), 'G' to 0xFF3A7A38.toInt()))
     val elfHouse = sprite(ELF_HOUSE, mapOf(
         'g' to 0xFF4FAE5C.toInt(), 'G' to 0xFF2F7A3E.toInt(), 'h' to 0xFF8ADB7A.toInt(),
@@ -461,13 +497,13 @@ class CivArt {
         val FARM = listOf(
             "ffffffffffffff",
             "dDdDdDdDdDdDdD",
-            "dgdgdgdgdgdgdg",
-            "dGdGdGdGdGdGdG",
+            "dddddddddddddd",
             "dDdDdDdDdDdDdD",
-            "dgdgdgdgdgdgdg",
-            "dGdGdGdGdGdGdG",
+            "dddddddddddddd",
             "dDdDdDdDdDdDdD",
-            "dgdgdgdgdgdgdg",
+            "dddddddddddddd",
+            "dDdDdDdDdDdDdD",
+            "dddddddddddddd",
             "ffffffffffffff",
         )
         val WELL = listOf(
@@ -513,6 +549,36 @@ class CivArt {
             "..LlLlL.",
             ".LLLLLL.",
             "..ssss..",
+        )
+        val RABBIT1 = listOf(
+            "......e.",
+            "......ee",
+            ".....bbb",
+            ".bbbbbbn",
+            "wbbbbbb.",
+            ".bb..bb.",
+        )
+        val RABBIT2 = listOf(
+            "......e.",
+            ".....ee.",
+            ".....bbb",
+            "bbbbbbbn",
+            "wbbbbbb.",
+            "bb....bb",
+        )
+        val DUCK1 = listOf(
+            ".....gg.",
+            "....gdgo",
+            ".bbbwwg.",
+            "bbbbwww.",
+            ".wwwww..",
+        )
+        val DUCK2 = listOf(
+            ".....gg.",
+            "....gdgo",
+            ".bbbwwg.",
+            ".bbbwww.",
+            "..wwww..",
         )
         val PERSON1 = listOf(
             "..rrrr..",

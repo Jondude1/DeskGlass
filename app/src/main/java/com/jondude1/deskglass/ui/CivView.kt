@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -58,7 +59,9 @@ import com.jondude1.deskglass.sim.GW
 import com.jondude1.deskglass.sim.T
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** The village, drawn live. It also runs the simulation while it is on screen. */
 @Composable
@@ -108,6 +111,33 @@ fun CivCanvas(
             }
         }
     }
+    LaunchedEffect(sim) {
+        while (true) {
+            var sig = 17
+            for (i in 0 until GW * GH) sig = sig * 31 + sim.biome[i] * 2 + (if (sim.tiles[i] == T.WATER) 1 else 0)
+            if (sig != art.groundSig && !art.groundBusy) {
+                art.groundBusy = true
+                val water = BooleanArray(GW * GH) { sim.tiles[it] == T.WATER }
+                val bio = sim.biome.copyOf()
+                val grass = BooleanArray(GW * GH) { sim.tiles[it] == T.GRASS && sim.biome[it] == 0 }
+                try {
+                    val imgs = withContext(Dispatchers.Default) {
+                        val fr = GroundGen.render(GW, GH, water, bio)
+                        art.groundImages(fr, GW * GroundGen.CELL, GH * GroundGen.CELL)
+                    }
+                    art.rebuildDecor(GW, GH, water, grass)
+                    art.ground = imgs
+                    art.groundSig = sig
+                    frame = System.nanoTime()
+                } catch (e: Exception) {
+                    art.groundSig = sig
+                } finally {
+                    art.groundBusy = false
+                }
+            }
+            delay(1500L)
+        }
+    }
     DisposableEffect(sim) { onDispose { sim.save() } }
     LaunchedEffect(sim) {
         while (true) {
@@ -139,7 +169,7 @@ fun CivCanvas(
     }
 }
 
-private fun DrawScope.img(
+internal fun DrawScope.img(
     image: ImageBitmap, x: Float, y: Float, w: Float, h: Float,
 ) {
     drawImage(
@@ -153,7 +183,7 @@ private fun DrawScope.img(
 }
 
 /** Little hats and tools drawn over each villager so every job reads at a glance. */
-private fun DrawScope.jobGear(job: String, px: Float, top: Float, u: Float, working: Boolean, t: Float) {
+internal fun DrawScope.jobGear(job: String, px: Float, top: Float, u: Float, working: Boolean, t: Float) {
     fun r(c: Long, x: Float, y: Float, w: Float, h: Float) =
         drawRect(Color(c), Offset(px + x * u, top + y * u), Size(w * u, h * u))
     val swing = if (working) kotlin.math.sin(t * 8f) * 0.8f else 0f
@@ -245,35 +275,21 @@ private fun DrawScope.drawWorld(
     val water = ((sim.time * 1.5).toInt()) and 1
     val fireFrame = ((sim.time * 4).toInt()) and 1
     val dark = sim.darkness()
+    val geo = Geo(ox, oy, ts, ps, t, dark)
+    val sun = sunFor(sim, dark)
 
     drawRect(Color(0xFF0B1220))
 
     fun isWater(x: Int, y: Int): Boolean =
         x in 0 until GW && y in 0 until GH && sim.tiles[y * GW + x] == T.WATER
 
-    // ground: water, sandy shores, flowery grass
+    // ground: one painted image with curved coasts, beaches and ragged biome borders
+    val gnd = art.ground
+    if (gnd != null) img(gnd[water], ox, oy, GW * ts, GH * ts)
+    // twinkles on the water and flowers in the grass
     for (y in 0 until GH) for (x in 0 until GW) {
         val i = y * GW + x
         val h = cellHash(x, y)
-        val tile = when {
-            sim.tiles[i] == T.WATER -> art.water[water]
-            isWater(x + 1, y) || isWater(x - 1, y) || isWater(x, y + 1) || isWater(x, y - 1) -> art.sand[h and 1]
-            else -> when (sim.biome[i]) {
-                1 -> art.desert[h and 1]
-                2 -> art.snowTile[h and 1]
-                else -> art.grass[h and 3]
-            }
-        }
-        img(tile, ox + x * ts, oy + y * ts, ts + 1f, ts + 1f)
-        if (sim.tiles[i] == T.WATER) {
-            val bob = kotlin.math.sin(t * 2f + x * 0.8f + y) * ps * 0.6f
-            val fa = 0.38f + 0.2f * kotlin.math.sin(t * 2.3f + x + y * 0.6f)
-            val foam = Color.White.copy(alpha = fa)
-            if (y + 1 < GH && !isWater(x, y + 1)) drawRect(foam, Offset(ox + x * ts, oy + (y + 1) * ts - ps * 1.6f + bob), Size(ts + 1f, ps * 1.2f))
-            if (y > 0 && !isWater(x, y - 1)) drawRect(foam, Offset(ox + x * ts, oy + y * ts + ps * 0.4f - bob), Size(ts + 1f, ps * 1.2f))
-            if (x + 1 < GW && !isWater(x + 1, y)) drawRect(foam, Offset(ox + (x + 1) * ts - ps * 1.6f + bob, oy + y * ts), Size(ps * 1.2f, ts + 1f))
-            if (x > 0 && !isWater(x - 1, y)) drawRect(foam, Offset(ox + x * ts + ps * 0.4f - bob, oy + y * ts), Size(ps * 1.2f, ts + 1f))
-        }
         if (sim.tiles[i] == T.WATER && h % 5 == 0) {
             val tw = kotlin.math.sin(t * 2.4f + (h % 13)).coerceIn(0f, 1f)
             if (tw > 0.05f) {
@@ -283,7 +299,7 @@ private fun DrawScope.drawWorld(
                 drawRect(Color.White.copy(alpha = 0.4f * tw), Offset(sx - ps, sy + ps * 0.4f), Size(ps * 3.5f, ps * 0.7f))
             }
         }
-        if (sim.tiles[i] == T.GRASS && h % 9 == 0) {
+        if (sim.tiles[i] == T.GRASS && sim.biome[i] == 0 && h % 9 == 0) {
             val fc = when ((h / 9) % 3) {
                 0 -> Color(0xFFFFFFFF)
                 1 -> Color(0xFFFFE066)
@@ -291,7 +307,9 @@ private fun DrawScope.drawWorld(
             }
             val fx = ox + x * ts + ((h shr 4) % 11 + 2) * ps
             val fy = oy + y * ts + ((h shr 8) % 10 + 3) * ps
-            drawRect(fc, Offset(fx, fy), Size(ps * 1.6f, ps * 1.6f))
+            val nod = kotlin.math.sin(t * 1.6f + (h % 9)) * ps * 0.35f
+            drawRect(Color(0xFF3F8744), Offset(fx + ps * 0.4f, fy + ps), Size(ps * 0.7f, ps * 1.6f))
+            drawRect(fc, Offset(fx + nod, fy), Size(ps * 1.6f, ps * 1.6f))
         }
     }
 
@@ -312,6 +330,8 @@ private fun DrawScope.drawWorld(
         if (other(x, y + 1, o)) drawRect(edge, Offset(ox + x * ts, oy + (y + 1) * ts - bw), Size(ts, bw))
     }
 
+    lifeUnderlay(sim, art, geo)
+
     // ships sail along open water
     var shipN = 0
     for (y in 1 until GH - 1) {
@@ -325,8 +345,8 @@ private fun DrawScope.drawWorld(
                     val hi = e - 1.5f
                     val pos = lo + (hi - lo) * (0.5f + 0.5f * kotlin.math.sin(t * 0.12f + y))
                     val sp = art.ship
-                    val sw = sp.width * ps
-                    val sh = sp.height * ps
+                    val sw = sp.lw * ps
+                    val sh = sp.lh * ps
                     val bob = kotlin.math.sin(t * 2f + y) * ps * 0.7f
                     val cx = ox + pos * ts
                     val cy = oy + (y + 0.7f) * ts + bob
@@ -366,22 +386,26 @@ private fun DrawScope.drawWorld(
                 T.GRASS -> if (sim.biome[i] == 1 && h % 11 == 0 && sim.owner[i] < 0) { sp = art.cactus; shadowW = 6f }
             }
             if (sp != null) {
-                val w = sp.width * ps
-                val hh = sp.height * ps
+                val w = sp.lw * ps
+                val hh = sp.lh * ps
                 val cx = ox + (x + 0.5f) * ts
                 val baseY = oy + (y + 0.95f) * ts
-                if (shadowW > 0f) shadow(cx, baseY, shadowW * ps, 3.5f * ps)
+                if (shadowW > 0f) {
+                    shadow(cx, baseY, shadowW * ps, 3.5f * ps)
+                    castShadow(art, sp, cx, baseY, w, hh, sun)
+                }
                 val sway = if (swaying) kotlin.math.sin(t * 1.3f + (h % 7)) * ps * 0.6f else 0f
                 img(sp, cx - w / 2f + sway, baseY - hh, w, hh)
             }
         }
         if (wellHut != null && wellHut.y == y) {
             val wsp = art.well
-            val ww = wsp.width * ps
-            val wh = wsp.height * ps
+            val ww = wsp.lw * ps
+            val wh = wsp.lh * ps
             val wcx = ox + (wellHut.x + 1.5f) * ts
             val wby = oy + (wellHut.y + 0.97f) * ts
             shadow(wcx, wby, ww * 0.9f, 3.5f * ps)
+            castShadow(art, wsp, wcx, wby, ww, wh, sun)
             img(wsp, wcx - ww / 2f, wby - wh, ww, wh)
         }
         for (k in sim.kingdoms) {
@@ -390,7 +414,7 @@ private fun DrawScope.drawWorld(
             if (k.fallen) {
                 if (k.cy == y) {
                     val rs = art.rock
-                    img(rs, ox + (k.cx + 0.5f) * ts - rs.width * ps / 2f, oy + (k.cy + 0.95f) * ts - rs.height * ps, rs.width * ps, rs.height * ps)
+                    img(rs, ox + (k.cx + 0.5f) * ts - rs.lw * ps / 2f, oy + (k.cy + 0.95f) * ts - rs.lh * ps, rs.lw * ps, rs.lh * ps)
                 }
                 continue
             }
@@ -398,21 +422,23 @@ private fun DrawScope.drawWorld(
             val n = sim.homeCount(k)
             for ((hi, hm) in k.homes.withIndex()) {
                 if (hi >= n || hm[1] != y) continue
-                val w = home.width * ps
-                val hh = home.height * ps
+                val w = home.lw * ps
+                val hh = home.lh * ps
                 val cx = ox + (hm[0] + 0.5f) * ts
                 val baseY = oy + (hm[1] + 0.97f) * ts
                 shadow(cx, baseY, w * 0.9f, 3.5f * ps)
+                castShadow(art, home, cx, baseY, w, hh, sun)
                 img(home, cx - w / 2f, baseY - hh, w, hh)
                 banner(cx + w * 0.28f, baseY - hh + ps * 1.5f, ps * 5f, kc, ps * 0.8f, t, hi.toFloat())
             }
             if (k.cy == y) {
                 val kp = art.keep
-                val w = kp.width * ps
-                val hh = kp.height * ps
+                val w = kp.lw * ps
+                val hh = kp.lh * ps
                 val cx = ox + (k.cx + 0.5f) * ts
                 val baseY = oy + (k.cy + 0.97f) * ts
                 shadow(cx, baseY, w * 0.95f, 4f * ps)
+                castShadow(art, kp, cx, baseY, w, hh, sun)
                 img(kp, cx - w / 2f, baseY - hh, w, hh)
                 banner(cx - ps * 0.4f, baseY - hh + ps * 0.5f, ps * 9f, kc, ps, t, k.id.toFloat())
                 if (dark > 0.1f) {
@@ -430,8 +456,8 @@ private fun DrawScope.drawWorld(
             if (b.y != y || b.type != "farm") continue
             for (k in 0 until 2) {
                 val sp = art.chicken[if (((t * 2f + k * 3f).toInt() and 3) == 0) 1 else 0]
-                val cw = sp.width * ps
-                val chh = sp.height * ps
+                val cw = sp.lw * ps
+                val chh = sp.lh * ps
                 val cx = ox + (b.x + 0.5f + kotlin.math.sin(t * 0.3f + k * 2.6f) * 0.9f) * ts
                 val cy = oy + (b.y + 0.9f + 0.12f * k) * ts
                 shadow(cx, cy, cw * 0.9f, 1.8f * ps)
@@ -448,12 +474,16 @@ private fun DrawScope.drawWorld(
                 "palisade" -> art.palisade
                 else -> art.fire[fireFrame]
             }
-            val w = sp.width * ps
-            val hh = sp.height * ps
+            val w = sp.lw * ps
+            val hh = sp.lh * ps
             val cx = ox + (b.x + 0.5f) * ts
             val baseY = oy + (b.y + 0.97f) * ts
-            if (b.type != "farm") shadow(cx, baseY, w * 0.9f, 3.5f * ps)
+            if (b.type != "farm") {
+                shadow(cx, baseY, w * 0.9f, 3.5f * ps)
+                if (b.type != "campfire") castShadow(art, sp, cx, baseY, w, hh, sun)
+            }
             img(sp, cx - w / 2f, baseY - hh, w, hh)
+            if (b.type == "farm") crops(b, geo, cx - w / 2f, baseY - hh)
             if (b.type == "tower") {
                 // a flag on top and a torch that glows at night
                 banner(cx + ps * 0.5f, baseY - hh + ps * 0.5f, ps * 8f, Color(sim.kingdoms[0].color), ps, t, 3f)
@@ -490,50 +520,10 @@ private fun DrawScope.drawWorld(
         }
     }
 
-    // villagers
+    // wildlife, then villagers
+    lifeCritters(sim, art, geo)
     val sorted = sim.villagers.sortedBy { it.y }
-    for (v in sorted) {
-        val walking = v.phase == "walking"
-        val sp = art.person(v.colorIdx, if (walking) (((v.x + v.y) * 3).toInt() and 1) else 0)
-        val kid = if (sim.isChild(v)) 0.72f else 1f
-        val w = sp.width * ps * kid
-        val h = sp.height * ps * kid
-        val bob = when (v.phase) {
-            "walking" -> kotlin.math.abs(kotlin.math.sin(t * 9f + v.id)) * ps * 0.8f
-            "working" -> kotlin.math.abs(kotlin.math.sin(t * 6f + v.id)) * ps * 1.2f
-            else -> 0f
-        }
-        val px = ox + v.x * ts - w / 2f
-        val feetY = oy + (v.y + 0.45f) * ts
-        shadow(ox + v.x * ts, feetY, w * 0.9f, 2.6f * ps)
-        if (v.phase == "sleeping") {
-            drawIntoCanvas { c ->
-                namePaint.textSize = ts * 0.4f
-                namePaint.textAlign = Paint.Align.CENTER
-                c.nativeCanvas.drawText("z z", ox + v.x * ts, feetY - h * 0.9f, namePaint)
-            }
-        } else {
-            img(sp, px, feetY - h - bob, w, h)
-            if (!sim.isChild(v)) jobGear(v.job, px, feetY - h - bob, w / 8f, v.phase == "working", t + v.id)
-        }
-        if (v.phase == "working" && (v.action.startsWith("gather_") || v.action == "mine_ore" || v.action == "smelt")) {
-            val col = when (v.action) {
-                "gather_wood" -> Color(0xFFB07A3C)
-                "gather_stone" -> Color(0xFFB8BEC8)
-                "mine_ore" -> Color(0xFFD98A3D)
-                "smelt" -> Color(0xFFFF9A2B)
-                else -> Color(0xFFE0405A)
-            }
-            for (k in 0 until 3) {
-                val p = ((t * 1.6f + k * 0.33f + v.id * 0.17f) % 1f)
-                drawRect(
-                    col.copy(alpha = 1f - p),
-                    Offset(ox + v.x * ts + (k - 1) * ps * 3f + v.facing * ps * 3f, feetY - h * 0.7f - p * ps * 8f),
-                    Size(ps * 1.6f, ps * 1.6f),
-                )
-            }
-        }
-    }
+    drawVillagers(sim, art, geo, sun)
 
     // rival kingdoms' folk go about their day
     for (k in sim.kingdoms) {
@@ -544,8 +534,8 @@ private fun DrawScope.drawWorld(
             val wy = k.cy + 1.4f + kotlin.math.cos(t * 0.28f + m * 1.7f) * (1.2f + (m % 2) * 0.6f)
             val spr = art.folk(k.race, ((t * 3f + m).toInt()) and 1)
             val sc = if (k.race == "Dwarf") 0.85f else 1f
-            val w = spr.width * ps * sc
-            val h = spr.height * ps * sc
+            val w = spr.lw * ps * sc
+            val h = spr.lh * ps * sc
             shadow(ox + wx * ts, oy + wy * ts, w * 0.9f, 2.4f * ps)
             img(spr, ox + wx * ts - w / 2f, oy + wy * ts - h, w, h)
         }
@@ -562,8 +552,8 @@ private fun DrawScope.drawWorld(
             val mx = ax + (bx - ax) * p
             val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
             val soldier = art.folk(if (a.race == "Human") "Elf" else a.race, ((t * 4f + m).toInt()) and 1)
-            val w = soldier.width * ps
-            val h = soldier.height * ps
+            val w = soldier.lw * ps
+            val h = soldier.lh * ps
             shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
             img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
         }
@@ -572,8 +562,8 @@ private fun DrawScope.drawWorld(
             val mx = ax + (bx - ax) * p
             val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
             val soldier = art.folk(if (b.race == "Human") "Elf" else b.race, ((t * 4f + m).toInt()) and 1)
-            val w = soldier.width * ps
-            val h = soldier.height * ps
+            val w = soldier.lw * ps
+            val h = soldier.lh * ps
             shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
             img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
         }
@@ -741,8 +731,8 @@ private fun DrawScope.drawWorld(
             val dx = ox + (GW * (0.12f + 0.3f * k) + kotlin.math.sin(t * 0.07f + k * 2.1f) * 2.5f) * ts
             val dy = oy + (GH * (0.86f - 0.04f * k) + kotlin.math.cos(t * 0.05f + k) * 0.8f) * ts
             val sp = art.deer[if (((t * 1.2f + k).toInt() and 3) == 0) 1 else 0]
-            val dw = sp.width * ps
-            val dh = sp.height * ps
+            val dw = sp.lw * ps
+            val dh = sp.lh * ps
             shadow(dx, dy, dw * 0.9f, 2.2f * ps)
             img(sp, dx - dw / 2f, dy - dh, dw, dh)
         }
@@ -752,8 +742,8 @@ private fun DrawScope.drawWorld(
     for (p in sim.predators) {
         val sp = when (p.kind) { "bear" -> art.bear; "boar" -> art.boar; else -> art.wolf }
         val sc = when (p.kind) { "bear" -> 1.15f; "boar" -> 0.95f; else -> 1f }
-        val w = sp.width * ps * sc
-        val h = sp.height * ps * sc
+        val w = sp.lw * ps * sc
+        val h = sp.lh * ps * sc
         val feet = oy + (p.y + 0.45f) * ts
         shadow(ox + p.x * ts, feet, w * 0.9f, 2.6f * ps)
         img(sp, ox + p.x * ts - w / 2f, feet - h, w, h)
@@ -793,21 +783,65 @@ private fun DrawScope.drawWorld(
         }
     }
 
+    // dusk and dawn glow warm before the dark comes in
+    val warmth = (1f - kotlin.math.abs(dark - 0.22f) / 0.22f).coerceIn(0f, 1f)
+    if (warmth > 0f) drawRect(Color(0xFFFF8A3C).copy(alpha = 0.13f * warmth))
+
     // evening and night
     if (dark > 0f) {
-        drawRect(Color(0xFF0A1030).copy(alpha = dark))
+        // the dark, with holes cut out wherever there is a fire or a window
+        drawIntoCanvas { c ->
+            val nc = c.nativeCanvas
+            val bounds = RectF(0f, 0f, size.width, size.height)
+            val layer = nc.saveLayer(bounds, null)
+            art.nightPaint.color = android.graphics.Color.argb((dark * 255f * 1.15f).toInt().coerceIn(0, 255), 8, 14, 46)
+            nc.drawRect(bounds, art.nightPaint)
+            fun light(lx: Float, ly: Float, rad: Float, strength: Float) {
+                val a1 = (strength * 255f).toInt().coerceIn(0, 255)
+                art.lightPaint.shader = android.graphics.RadialGradient(
+                    lx, ly, rad,
+                    intArrayOf(android.graphics.Color.argb(a1, 0, 0, 0), android.graphics.Color.argb(a1 * 55 / 100, 0, 0, 0), 0),
+                    floatArrayOf(0f, 0.45f, 1f),
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+                nc.drawCircle(lx, ly, rad, art.lightPaint)
+            }
+            for (b in sim.buildings) {
+                val bx = ox + (b.x + 0.5f) * ts
+                val by = oy + (b.y + 0.5f) * ts
+                val flick = 1f + 0.06f * kotlin.math.sin(t * 11f + b.x)
+                when {
+                    b.type == "campfire" -> light(bx, by, ts * 5.5f * flick, 0.95f)
+                    b.type == "smelter" -> light(bx, by, ts * 3.4f * flick, 0.75f)
+                    b.type == "tower" -> light(bx, by - ts * 0.8f, ts * 4f * flick, 0.8f)
+                    b.type == "hut" && b.era >= 1 -> light(bx, by + ts * 0.1f, ts * 2.2f, 0.6f)
+                }
+            }
+            for (k in sim.kingdoms) {
+                if (k.id == 0 || k.fallen) continue
+                light(ox + (k.cx + 0.5f) * ts, oy + (k.cy + 0.4f) * ts, ts * 3.2f, 0.7f)
+                for ((hi, hm) in k.homes.withIndex()) {
+                    if (hi >= sim.homeCount(k)) break
+                    light(ox + (hm[0] + 0.5f) * ts, oy + (hm[1] + 0.5f) * ts, ts * 1.8f, 0.5f)
+                }
+            }
+            art.lightPaint.shader = null
+            nc.restoreToCount(layer)
+        }
+        // warm glow on top of the cut-out light
         for (b in sim.buildings) {
-            if (b.type != "campfire" && b.type != "smelter") continue
-            val c = Offset(ox + (b.x + 0.5f) * ts, oy + (b.y + 0.5f) * ts)
-            val flick = (1f + 0.06f * kotlin.math.sin(t * 11f)) * (if (b.type == "smelter") 0.45f else 1f)
+            if (b.type != "campfire" && b.type != "smelter" && b.type != "tower") continue
+            val gc = Offset(ox + (b.x + 0.5f) * ts, oy + (b.y + (if (b.type == "tower") -0.3f else 0.5f)) * ts)
+            val flick = (1f + 0.06f * kotlin.math.sin(t * 11f)) * (if (b.type == "campfire") 1f else 0.5f)
             drawCircle(
                 Brush.radialGradient(
-                    listOf(Color(0xFFFFB347).copy(alpha = dark * 0.95f), Color.Transparent),
-                    center = c,
-                    radius = ts * 5.5f * flick,
+                    listOf(Color(0xFFFFB347).copy(alpha = dark * 0.55f), Color.Transparent),
+                    center = gc,
+                    radius = ts * 4f * flick,
                 ),
-                radius = ts * 5.5f * flick,
-                center = c,
+                radius = ts * 4f * flick,
+                center = gc,
+                blendMode = BlendMode.Plus,
             )
         }
         for (b in sim.buildings) {
