@@ -289,6 +289,13 @@ class CivSim(
         drops.clear()
         ageBannerAt = -999.0
         fx.clear()
+        // a new world must not inherit the old world's clocks (alerts, rain, festivals...)
+        alertUntil = 0.0; rainUntil = 0.0; festivalUntil = 0.0; plagueUntil = 0.0; godUntil = 0.0; shakeUntil = 0.0
+        nextEventAt = time + DAY_LEN * 0.6
+        nextTowerAt = 0.0; nextWallAt = 0.0; nextPlanAt = 0.0
+        ageClock = 0f; worldClock = 0f; ownerClock = 0f; bushClock = 0f
+        nextWorldEventAt = time + 60.0
+        fleeAt.clear()
         val e = noise(rnd, 4)
         val f = noise(rnd, 3)
         val g = noise(rnd, 3)
@@ -317,6 +324,9 @@ class CivSim(
         ensure(T.ROCK, 6, 14)
         ensure(T.BUSH, 3, 14)
         addBuilding("campfire", cx, cy)
+        // two starter huts so the first nights are safe and warm
+        addBuilding("hut", cx - 3, cy + 2)
+        addBuilding("hut", cx + 3, cy + 2)
         for (k in 0 until 4) spawnVillager()
         addLog("A small band of villagers settles by a fire.")
         mark("A small band of villagers settled by a fire.")
@@ -1222,7 +1232,8 @@ class CivSim(
                 else -> "wander" to ""
             }
         }
-        if (alert() && v.job != "Scout") return "huddle" to ""
+        // hiding is for safety, but nobody hides while starving
+        if (alert() && v.job != "Scout" && !(v.hunger >= 70f && food < 3)) return "huddle" to ""
         if (festival()) {
             return if (rnd.nextInt(3) == 0 && others.isNotEmpty()) "talk" to (friendFor(v)?.name ?: "") else "huddle" to ""
         }
@@ -1757,7 +1768,7 @@ class CivSim(
         defenceTick()
         wallTick()
         if (predators.isEmpty()) return
-        val fires = buildings.filter { it.type == "campfire" || it.type == "tower" }
+        val fires = buildings.filter { it.type == "campfire" || it.type == "tower" || it.type == "hut" }
         val towers = buildings.filter { it.type == "tower" }
         for (p in predators.toList()) {
             p.life += dt
