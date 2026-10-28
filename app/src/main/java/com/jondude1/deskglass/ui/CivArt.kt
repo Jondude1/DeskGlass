@@ -125,6 +125,21 @@ class CivArt {
         'w' to 0xFFB9B9BF.toInt(), 'W' to 0xFF95959D.toInt(), 'd' to 0xFF3E2A1B.toInt(),
         'k' to 0xFF9FD3F0.toInt(), 'b' to 0xFF6B6B74.toInt(), 'c' to 0xFF6E6E78.toInt(),
     ))
+    val townHouse = sprite(TOWNHOUSE, mapOf(
+        'r' to 0xFFA04A38.toInt(), 'R' to 0xFF7C3A2B.toInt(), 'c' to 0xFF6E6E78.toInt(),
+        'w' to 0xFFE7DCC2.toInt(), 'W' to 0xFFC9B99A.toInt(), 'k' to 0xFF9FD3F0.toInt(),
+        'd' to 0xFF4A2E1B.toInt(), 'b' to 0xFF8D909C.toInt(),
+    ))
+    val cityHouse = sprite(CITYHOUSE, mapOf(
+        'r' to 0xFF5B6B8C.toInt(), 'R' to 0xFF3F4C6B.toInt(), 'p' to 0xFF5A3A22.toInt(), 'f' to 0xFFD94F4F.toInt(),
+        'w' to 0xFFEDE3CC.toInt(), 'W' to 0xFFCFC2A6.toInt(), 'k' to 0xFF9FD3F0.toInt(),
+        'd' to 0xFF4A2E1B.toInt(), 'b' to 0xFF8D909C.toInt(),
+    ))
+    val hall = sprite(HALL, mapOf(
+        'r' to 0xFFC9A04A.toInt(), 'R' to 0xFF9C7A2E.toInt(), 'p' to 0xFF5A3A22.toInt(), 'f' to 0xFF4F9BFF.toInt(),
+        'w' to 0xFFA8743A.toInt(), 'W' to 0xFF86582A.toInt(), 'k' to 0xFFF2D88A.toInt(),
+        'd' to 0xFF3B2412.toInt(), 'b' to 0xFF7A6A55.toInt(),
+    ))
     val tent = sprite(TENT, mapOf(
         'p' to 0xFF6B4A2B.toInt(), 't' to 0xFFC9A26B.toInt(), 'T' to 0xFFA67E4B.toInt(), 'd' to 0xFF3B2A1A.toInt(),
     ))
@@ -383,6 +398,47 @@ class CivArt {
             ".wwwwddddwwww.",
             ".WwwwddddwwwW.",
             ".bbbbbbbbbbbb.",
+        )
+        val TOWNHOUSE = listOf(
+            "....cc........",
+            "....cc..rrrr..",
+            "...rrrrrrRRRR.",
+            "..rrrrrrrRRRRR",
+            ".rrrrrrrrrRRRR",
+            "rrrrrrrrrrRRRR",
+            ".wwwwwwwwwwww.",
+            ".wkkwWwwwWkkw.",
+            ".wkkwwwwwwkkw.",
+            ".wwwwwddwwwww.",
+            ".WwwwwddwwwwW.",
+            ".bbbbbddbbbbb.",
+        )
+        val CITYHOUSE = listOf(
+            "......p.......",
+            "......pff.....",
+            "....rrrrrr....",
+            "...rrrrrrRR...",
+            "..rrrrrrrRRR..",
+            ".rrrrrrrrrRRR.",
+            ".wwwwwwwwwwww.",
+            ".wkkwwwwwwkkw.",
+            ".wkkwwwwwwkkw.",
+            ".wwwwwwwwwwww.",
+            ".wkkwwddwwkkw.",
+            ".WwwwwddwwwwW.",
+            ".bbbbbddbbbbb.",
+        )
+        val HALL = listOf(
+            "......p.........",
+            "......pff.......",
+            "....rrrrrrrr....",
+            "..rrrrrrrrrrRR..",
+            ".rrrrrrrrrrrrRR.",
+            "rrrrrrrrrrrrrrRR",
+            ".wwwwwwwwwwwwww.",
+            ".wwkkwwddwwkkww.",
+            ".WwkkwwddwwkkwW.",
+            ".bbbbbbddbbbbbb.",
         )
         val TENT = listOf(
             "......pp......",

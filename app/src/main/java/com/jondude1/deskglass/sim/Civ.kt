@@ -28,7 +28,7 @@ object T {
     const val ORE = 5
 }
 
-class Building(val type: String, val x: Int, val y: Int, val era: Int = 0) {
+class Building(val type: String, val x: Int, val y: Int, var era: Int = 0) {
     var boostUntil = 0.0
     var ready = 0
     var timer = 0f
@@ -41,8 +41,8 @@ val JOBS = listOf(
     "Hunter", "Bronzesmith", "Blacksmith",
 )
 private val JOB_MIN_AGE = mapOf("Farmer" to 1, "Bronzesmith" to 2, "Blacksmith" to 3)
-private val JOB_MAX_AGE = mapOf("Hunter" to 1, "Bronzesmith" to 2)
-val AGE_NAMES = listOf("Hunter-Gatherer Age", "Farming Age", "Bronze Age", "Iron Age")
+private val JOB_MAX_AGE = mapOf("Bronzesmith" to 2)
+val AGE_NAMES = listOf("Camp Age", "Hut Age", "Village Age", "Town Age", "City Age")
 
 private val PERSONAS = listOf(
     Persona("a cautious planner who hates running out of food", "speaks carefully in short, anxious sentences and is always counting supplies", "a full storehouse that lasts the whole winter", listOf("Let's count the berries again.", "Better safe than hungry.")),
@@ -220,11 +220,10 @@ class CivSim(
     val fx = ArrayList<Fx>()
     val predators = ArrayList<Predator>()
     private val fleeAt = HashMap<Int, Double>()
-    var worldAge = 0
-        private set
-    private var worldAgeStart = 0.0
-    private var pendingKings: JSONArray? = null
-    private var pendingRels: JSONArray? = null
+    var hides = 0
+    val drops = ArrayList<Drop>()
+    var ageBannerAt = -999.0
+    var ageBannerName = ""
     private var worldClock = 0f
     private var ownerClock = 0f
     private var nextWorldEventAt = 0.0
@@ -286,10 +285,9 @@ class CivSim(
         predators.clear()
         time = DAY_LEN * 0.08
         lastBirth = time
-        worldAge = 0
-        worldAgeStart = time
-        pendingKings = null
-        pendingRels = null
+        hides = 0
+        drops.clear()
+        ageBannerAt = -999.0
         fx.clear()
         val e = noise(rnd, 4)
         val f = noise(rnd, 3)
@@ -496,6 +494,9 @@ class CivSim(
 
     private fun count(type: String) = buildings.count { it.type == type }
 
+    /** Buildings standing plus the ones somebody is already walking out to raise. */
+    private fun counting(type: String) = count(type) + villagers.count { it.action == "build_$type" }
+
     // ---- actions ----
 
     private fun go(v: Villager, action: String, goal: Int, target: Int = goal): Boolean {
@@ -553,7 +554,7 @@ class CivSim(
     private fun startAction(v: Villager, action: String, target: String): Boolean {
         when (action) {
             "gather_wood", "gather_stone", "gather_food", "mine_ore" -> {
-                if (action == "mine_ore" && age < 2) return false
+                if (action == "mine_ore" && (age < 2 || ore >= 60)) return false
                 val type = when (action) {
                     "gather_wood" -> T.FOREST
                     "gather_stone" -> T.ROCK
@@ -566,17 +567,17 @@ class CivSim(
             }
             "build_hut", "build_farm", "build_campfire", "build_smelter" -> {
                 val ok = when (action) {
-                    "build_hut" -> wood >= 6 && stone >= 2
-                    "build_farm" -> age >= 1 && wood >= 4
-                    "build_smelter" -> age >= 2 && wood >= 4 && stone >= 6 && count("smelter") < 3
-                    else -> stone >= 3 && count("campfire") < 3
+                    "build_hut" -> wood >= 6 && (stone >= 2 || hides >= 1)
+                    "build_farm" -> age >= 1 && wood >= 4 && counting("farm") < 2 + adults() / 3
+                    "build_smelter" -> age >= 2 && wood >= 4 && stone >= 6 && counting("smelter") < 3
+                    else -> stone >= 3 && counting("campfire") < 3
                 }
                 if (!ok) return false
                 val site = findSite()
                 if (site < 0) return false
                 if (!go(v, action, site)) return false
                 when (action) {
-                    "build_hut" -> { wood -= 6; stone -= 2 }
+                    "build_hut" -> { wood -= 6; if (hides >= 1) hides-- else stone -= 2 }
                     "build_farm" -> wood -= 4
                     "build_smelter" -> { wood -= 4; stone -= 6 }
                     else -> stone -= 3
@@ -590,7 +591,7 @@ class CivSim(
                 return go(v, "hunt", i)
             }
             "smelt" -> {
-                if (age < 2 || ore < 2 || wood < 1) return false
+                if (age < 2 || ore < 2 || wood < 30 || metal >= 150) return false
                 val b = nearestBuilding(v, "smelter") ?: return false
                 return go(v, "smelt", b.y * GW + b.x)
             }
@@ -890,7 +891,7 @@ class CivSim(
     fun ageYears(v: Villager): Int = max(0.0, (time - v.born) / YEAR).toInt()
     fun ageName(): String = AGE_NAMES[age.coerceIn(0, AGE_NAMES.size - 1)]
     fun nextAgeName(): String? = AGE_NAMES.getOrNull(age + 1)
-    fun popCap(): Int = when (age) { 0 -> 10; 1 -> 14; 2 -> 20; else -> 26 }
+    fun popCap(): Int = when (age) { 0 -> 10; 1 -> 14; 2 -> 20; 3 -> 28; else -> 38 }
     fun adults(): Int = villagers.count { !isChild(it) }
     fun toolBonus(): Int = when {
         age >= 3 && totalSmelted >= 30 -> 2
@@ -898,16 +899,54 @@ class CivSim(
         else -> 0
     }
 
+    private class Need(val label: String, val have: Float, val need: Float) {
+        val done: Boolean get() = have >= need
+    }
+
+    /** Age of Empires style: people, buildings, time and a payment from the stores. Null in the last age. */
+    private fun needs(): List<Need>? {
+        val ad = adults()
+        fun n(l: String, h: Int, d: Int) = Need(l, h.toFloat(), d.toFloat())
+        return when (age) {
+            0 -> listOf(n("days", day(), 40), n("adults", ad, 6), n("homes", count("hut"), 3), n("food", food, 80), n("wood", wood, 60))
+            1 -> listOf(
+                n("days", day(), 120), n("adults", ad, 9), n("homes", count("hut"), 6), n("farms", count("farm"), 2),
+                n("scouting trips", explored, 6), n("food", food, 200), n("wood", wood, 160), n("stone", stone, 80),
+            )
+            2 -> listOf(
+                n("days", day(), 300), n("adults", ad, 12), n("homes", count("hut"), 8), n("forges", count("smelter"), 2),
+                n("smelted metal", totalSmelted, 20), n("food", food, 400), n("wood", wood, 320), n("stone", stone, 200), n("metal", metal, 15),
+            )
+            3 -> listOf(
+                n("days", day(), 600), n("adults", ad, 16), n("homes", count("hut"), 12), n("farms", count("farm"), 4),
+                n("towers", count("tower"), 2), n("smelted metal", totalSmelted, 60), n("food", food, 800), n("wood", wood, 600),
+                n("stone", stone, 400), n("metal", metal, 50), n("hides", hides, 20),
+            )
+            else -> null
+        }
+    }
+
+    private fun payForAge() {
+        when (age) {
+            0 -> { food -= 80; wood -= 60 }
+            1 -> { food -= 200; wood -= 160; stone -= 80 }
+            2 -> { food -= 400; wood -= 320; stone -= 200; metal -= 15 }
+            3 -> { food -= 800; wood -= 600; stone -= 400; metal -= 50; hides -= 20 }
+        }
+    }
+
     /** How close the village is to the next age, 0..100. */
     fun progress(): Int {
-        val ad = adults().toFloat()
-        val parts = when (age) {
-            0 -> listOf(day() / 80f, ad / 6f, count("hut") / 3f)
-            1 -> listOf(day() / 300f, ad / 9f, count("hut") / 6f, count("farm") / 2f, explored / 6f)
-            2 -> listOf(day() / 650f, ad / 12f, count("smelter") / 2f, totalSmelted / 20f)
-            else -> return 100
-        }
-        return (parts.map { min(1f, it) }.average() * 100).toInt().coerceIn(0, 99)
+        val parts = needs() ?: return 100
+        return (parts.map { min(1f, it.have / it.need) }.average() * 100).toInt().coerceIn(0, 99)
+    }
+
+    /** What is still missing for the next age, in plain words. */
+    fun ageNeedText(): String {
+        val parts = needs() ?: return "The city stands complete."
+        val open = parts.filter { !it.done }
+        if (open.isEmpty()) return "Ready to advance."
+        return open.sortedBy { it.have / it.need }.take(3).joinToString(", ") { "${it.label} ${it.have.toInt()}/${it.need.toInt()}" }
     }
 
     private fun jobOk(j: String) = age >= (JOB_MIN_AGE[j] ?: 0) && age <= (JOB_MAX_AGE[j] ?: 99)
@@ -945,10 +984,7 @@ class CivSim(
         }
         when (age) {
             1 -> swap(listOf("Hunter", "Forager", "Woodcutter"), "Farmer", 2)
-            2 -> {
-                for (v in grown.filter { it.job == "Hunter" }) setJob(v, "Farmer")
-                swap(listOf("Miner", "Builder", "Woodcutter", "Forager"), "Bronzesmith", 2)
-            }
+            2 -> swap(listOf("Miner", "Builder", "Woodcutter", "Forager"), "Bronzesmith", 2)
             3 -> {
                 for (v in grown.filter { it.job == "Bronzesmith" }) setJob(v, "Blacksmith")
                 swap(listOf("Miner", "Builder", "Woodcutter"), "Blacksmith", 2)
@@ -957,19 +993,74 @@ class CivSim(
     }
 
     private fun advanceAge() {
+        if (age >= AGE_NAMES.size - 1) return
+        payForAge()
         age++
         if (age >= 2 && tiles.none { it == T.ORE }) ensure(T.ORE, 5, 8)
         event(
             when (age) {
-                1 -> "The villagers learn to plant seeds. The Farming Age begins!"
-                2 -> "Glittering ore is found in the hills. The Bronze Age begins!"
-                else -> "Stronger metal comes from the forge. The Iron Age begins!"
+                1 -> "Timber huts replace the tents and the first fields are sown. The Hut Age begins!"
+                2 -> "Stone houses rise around a new village hall, and the forges are lit. The Village Age begins!"
+                3 -> "Streets fill with townhouses, iron rings on the anvils. The Town Age begins!"
+                else -> "Towers, walls and a grand keep stand over the settlement. The City Age begins!"
             }
         )
         mark(AGE_NAMES[age.coerceIn(0, AGE_NAMES.size - 1)] + " begins.")
+        ageBannerName = AGE_NAMES[age.coerceIn(0, AGE_NAMES.size - 1)]
+        ageBannerAt = time
         retrain()
+        // every house is rebuilt in the style of the new age
+        for (b in buildings) {
+            if ((b.type == "hut" || b.type == "hall") && b.era < age) {
+                b.era = age
+                fx.add(Fx("spawn", b.x + 0.5f, b.y + 0.5f, time, 1.4f))
+            }
+        }
+        if (age >= 2) placeHall()
         for (v in villagers) v.happiness = min(100f, v.happiness + 15f)
         festivalUntil = time + 40.0
+    }
+
+    /** The village hall: raised by everyone together when the Village Age begins, and grander in later ages. */
+    private fun placeHall() {
+        val h = buildings.firstOrNull { it.type == "hall" }
+        if (h != null) {
+            h.era = age
+            return
+        }
+        val site = findSite()
+        if (site < 0) return
+        addBuilding("hall", site % GW, site / GW)
+    }
+
+    private fun capStores() {
+        val a = age.coerceIn(0, 4)
+        food = min(food, intArrayOf(150, 400, 900, 1800, 3000)[a])
+        wood = min(wood, intArrayOf(150, 400, 800, 1500, 2500)[a])
+        stone = min(stone, intArrayOf(100, 250, 500, 1000, 2000)[a])
+        ore = min(ore, 80)
+        metal = min(metal, 200)
+        hides = min(hides, 100)
+    }
+
+    private var nextPlanAt = 0.0
+
+    /** The settlement plans ahead: when the next age wants more homes, fields or forges, someone free gets on with it. */
+    private fun planTick() {
+        if (time < nextPlanAt || villagers.size < 3) return
+        nextPlanAt = time + 40.0
+        // old saves: make sure a hall stands from the Village Age on and every house matches the age
+        if (age >= 2 && count("hall") == 0) placeHall()
+        for (b in buildings) if ((b.type == "hut" || b.type == "hall") && b.era < age) b.era = age
+        val np = needs() ?: return
+        fun want(label: String) = np.any { it.label == label && !it.done }
+        val free = villagers.filter { !isChild(it) && it.phase == "idle" && it.hunger < 60f }
+        val worker = free.firstOrNull { it.job == "Builder" } ?: free.firstOrNull() ?: return
+        when {
+            want("homes") && wood >= 6 && (stone >= 2 || hides >= 1) -> startAction(worker, "build_hut", "")
+            want("farms") && wood >= 4 && counting("farm") < 2 + adults() / 3 -> startAction(worker, "build_farm", "")
+            want("forges") && wood >= 4 && stone >= 6 && counting("smelter") < 3 -> startAction(worker, "build_smelter", "")
+        }
     }
 
     private var ageClock = 0f
@@ -978,14 +1069,8 @@ class CivSim(
         ageClock += dt
         if (ageClock < 2f) return
         ageClock = 0f
-        val ad = adults()
-        val ready = when (age) {
-            0 -> day() >= 80 && ad >= 6 && count("hut") >= 3
-            1 -> day() >= 300 && ad >= 9 && count("hut") >= 6 && count("farm") >= 2 && explored >= 6
-            2 -> day() >= 650 && ad >= 12 && count("smelter") >= 2 && totalSmelted >= 20
-            else -> false
-        }
-        if (ready) advanceAge()
+        val parts = needs() ?: return
+        if (parts.all { it.done }) advanceAge()
     }
 
     private fun growUp(v: Villager) {
@@ -998,16 +1083,17 @@ class CivSim(
     }
 
     private fun techNote(): String = when (age) {
-        0 -> "Age: Hunter-Gatherer. You live in tents and survive by hunting, fishing and foraging. Nobody knows farming yet."
-        1 -> "Age: Farming. You build timber huts and farms. The village grows crops and stores food."
-        2 -> "Age: Bronze. Ore has been found in the hills. Forges smelt bronze, and metal tools make work faster."
-        else -> "Age: Iron. Blacksmiths forge iron tools. The village is a real town now."
+        0 -> "Age: Camp. You live in tents and survive by hunting, fishing and foraging. Nobody knows farming yet."
+        1 -> "Age: Huts. You build timber huts and farms. The settlement grows crops and stores food."
+        2 -> "Age: Village. Stone houses and a village hall stand. Ore has been found; forges smelt bronze and metal tools make work faster."
+        3 -> "Age: Town. Streets of townhouses, watchtowers and iron tools. The settlement is a real town now."
+        else -> "Age: City. A walled city with a grand keep, towers and many trades."
     }
 
     // ---- brains ----
 
     private fun alert() = time < alertUntil || predators.isNotEmpty()
-    fun raining() = time < rainUntil || outsideRain || worldAge == 5
+    fun raining() = time < rainUntil || outsideRain
     private fun festival() = time < festivalUntil
 
     fun mood(v: Villager): String = when {
@@ -1058,7 +1144,7 @@ class CivSim(
         childrenOf(v).firstOrNull()?.let { out.add("${it.name} is ${ageYears(it)} already. They grow fast.") }
         v.memories.lastOrNull()?.let { out.add("I keep remembering that ${it.take(50)}.") }
         nearby(v).firstOrNull()?.let { out.add("${it.name} is busy ${doing(it)}.") }
-        if (worldAge != 0) out.add("The ${ageInfo().name.lowercase()} is on everyone's mind.")
+        out.add("The ${ageInfo().name.lowercase()} suits us.")
         if (age > 0) out.add("${count("hut")} huts and ${count("farm")} farms. We've come far.")
         if (rnd.nextInt(4) == 0) out.addAll(JOB_LINES[v.job] ?: v.persona.lines)
         if (out.isEmpty()) out.addAll(v.persona.lines)
@@ -1152,9 +1238,9 @@ class CivSim(
         val ad = adults()
         val needHut = count("hut") * 2 < villagers.size + 2
         if (needHut && wood >= 6 && stone >= 2 && (v.job == "Builder" || rnd.nextInt(5) == 0)) return "build_hut" to ""
-        if (age >= 1 && count("farm") < 1 + ad / 3 && wood >= 4 && (v.job == "Builder" || v.job == "Farmer" || rnd.nextInt(6) == 0)) return "build_farm" to ""
-        if (stone >= 3 && count("campfire") < 2 && v.job != "Scout") return "build_campfire" to ""
-        if (age >= 2 && count("smelter") < min(3, 1 + ad / 5) && stone >= 6 && wood >= 4 &&
+        if (age >= 1 && counting("farm") < 1 + ad / 3 && wood >= 4 && (v.job == "Builder" || v.job == "Farmer" || rnd.nextInt(6) == 0)) return "build_farm" to ""
+        if (stone >= 3 && counting("campfire") < 2 && v.job != "Scout") return "build_campfire" to ""
+        if (age >= 2 && counting("smelter") < min(3, 1 + ad / 5) && stone >= 6 && wood >= 4 &&
             (v.job == "Builder" || v.job == "Bronzesmith" || v.job == "Blacksmith" || rnd.nextInt(6) == 0)
         ) return "build_smelter" to ""
         if (partOfDay() == "evening" && v.job == "Storyteller") return "tell_story" to ""
@@ -1164,18 +1250,19 @@ class CivSim(
             "Woodcutter" -> pick("gather_wood" to 7, "talk" to 1, "wander" to 1, "gather_food" to (if (food < 8) 2 else 0))
             "Miner" -> pick(
                 "gather_stone" to (if (stone < 12) 7 else 2),
-                "mine_ore" to (if (age >= 2 && ore < 10) 4 else 0),
+                "mine_ore" to (if (age >= 2 && ore < 30) 4 else 0),
                 "gather_wood" to (if (wood < 12) 3 else 1), "talk" to 1, "wander" to 1,
             )
             "Forager" -> pick("gather_food" to 4, "fish" to (if (hasShore) 3 else 0), "talk" to 1, "wander" to 1)
             "Hunter" -> pick("hunt" to 7, "gather_food" to 1, "fish" to (if (hasShore) 1 else 0), "talk" to 1, "wander" to 1)
             "Farmer" -> pick("tend_farm" to (if (farms) 6 else 0), "gather_food" to 2, "gather_wood" to (if (farms) 0 else 4), "talk" to 1)
-            "Builder" -> pick("gather_wood" to 4, "gather_stone" to (if (stone < 4) 3 else 1), "talk" to 1, "wander" to 1)
+            "Builder" -> pick("gather_wood" to (if (wood < 80) 6 else 3), "gather_stone" to (if (stone < 4) 3 else 1), "talk" to 1, "wander" to 1)
             "Bronzesmith", "Blacksmith" ->
                 if (count("smelter") > 0) pick(
-                    "smelt" to (if (ore >= 2 && wood >= 1) 7 else 0),
-                    "mine_ore" to (if (ore < 6) 6 else 1),
-                    "gather_wood" to (if (wood < 6) 3 else 1), "talk" to 1,
+                    "smelt" to (if (ore >= 2 && wood >= 30 && metal < 150) 7 else 0),
+                    "mine_ore" to (if (ore < 6) 6 else if (ore < 40) 1 else 0),
+                    "gather_stone" to (if (stone < 20) 2 else 0),
+                    "gather_wood" to (if (wood < 60) 5 else 1), "talk" to 1,
                 ) else pick("mine_ore" to 4, "gather_stone" to 3, "gather_wood" to 2, "talk" to 1)
             "Scout" -> pick("explore" to 4, "gather_food" to 2, "talk" to 2, "wander" to 1)
             else -> pick("talk" to 4, "gather_food" to 2, "tell_story" to (if (v.energy > 40f) 1 else 0), "wander" to 1)
@@ -1239,7 +1326,7 @@ class CivSim(
 
     private fun weatherNow(): String = when {
         raining() -> "raining"
-        outsideSnow || worldAge == 7 || seasonName() == "winter" -> "cold, with snow about"
+        outsideSnow || seasonName() == "winter" -> "cold, with snow about"
         else -> "dry"
     }
 
@@ -1459,7 +1546,7 @@ class CivSim(
 
     // ---- kingdoms, world ages and god powers ----
 
-    fun ageInfo(): WorldAgeInfo = WORLD_AGES[worldAge.coerceIn(0, WORLD_AGES.size - 1)]
+    fun ageInfo(): WorldAgeInfo = WORLD_AGES[age.coerceIn(0, WORLD_AGES.size - 1)]
 
     fun shake(): Float = if (time < shakeUntil) ((shakeUntil - time) / 1.5).toFloat().coerceIn(0f, 1f) else 0f
 
@@ -1507,73 +1594,6 @@ class CivSim(
         kingdoms.clear()
         rels.clear()
         kingdoms.add(Kingdom(0, "Hearthvale", "Human", 0xFF4F9BFF, GW / 2, GH / 2))
-        val spots = listOf(
-            intArrayOf(6 + r.nextInt(4), 5 + r.nextInt(3)),
-            intArrayOf(GW - 8 - r.nextInt(3), GH - 6 - r.nextInt(3)),
-            intArrayOf(GW - 8 - r.nextInt(3), 5 + r.nextInt(3)),
-        )
-        val races = listOf("Elf", "Orc", "Dwarf")
-        val colors = listOf(0xFFC77DFF, 0xFFE8503A, 0xFFF0B13C)
-        val offs = listOf(
-            intArrayOf(-2, -1), intArrayOf(2, -1), intArrayOf(-2, 2), intArrayOf(2, 2),
-            intArrayOf(0, -3), intArrayOf(0, 3), intArrayOf(-4, 1), intArrayOf(4, 1),
-        )
-        for (k in 0 until 3) {
-            val names = RACE_NAMES[races[k]] ?: listOf("Rivals")
-            val kg = Kingdom(k + 1, names[r.nextInt(names.size)], races[k], colors[k], spots[k][0], spots[k][1])
-            kg.pop = 5 + r.nextInt(4)
-            kg.might = 8f + r.nextInt(8)
-            kingdoms.add(kg)
-            for (dy in -3..3) for (dx in -3..3) {
-                val x = kg.cx + dx
-                val y = kg.cy + dy
-                if (x !in 1 until GW - 1 || y !in 1 until GH - 1) continue
-                val i = y * GW + x
-                if (occupied[i] || hypot(dx.toFloat(), dy.toFloat()) > 3.4f) continue
-                if (tiles[i] != T.GRASS) {
-                    tiles[i] = T.GRASS
-                    amt[i] = 0
-                }
-            }
-            occupied[kg.cy * GW + kg.cx] = true
-            for (o in offs) {
-                val x = kg.cx + o[0]
-                val y = kg.cy + o[1]
-                if (x !in 1 until GW - 1 || y !in 1 until GH - 1) continue
-                val i = y * GW + x
-                if (occupied[i]) continue
-                tiles[i] = T.GRASS
-                amt[i] = 0
-                occupied[i] = true
-                kg.homes.add(intArrayOf(x, y))
-            }
-        }
-        val pk = pendingKings
-        if (pk != null) {
-            for (i in 0 until pk.length()) {
-                val j = pk.getJSONObject(i)
-                val kg = kingdoms.firstOrNull { it.id == j.optInt("id", -1) } ?: continue
-                if (kg.id == 0) continue
-                kg.pop = j.optInt("pop", kg.pop)
-                kg.might = j.optDouble("might", kg.might.toDouble()).toFloat()
-                kg.fallen = j.optBoolean("fallen", false)
-                kg.fallenAt = j.optDouble("fallenAt", 0.0)
-                val nm = j.optString("name", "")
-                if (nm.isNotBlank()) kg.name = nm
-            }
-        }
-        pendingKings = null
-        val pr = pendingRels
-        if (pr != null) {
-            for (i in 0 until pr.length()) {
-                val j = pr.getJSONObject(i)
-                val a = j.optInt("a", -1)
-                val b = j.optInt("b", -1)
-                if (a < 0 || b < 0 || a == b) continue
-                rels[relKey(a, b)] = Rel(a, b, j.optString("kind", "trade"), j.optDouble("until", time + 100.0))
-            }
-        }
-        pendingRels = null
         nextWorldEventAt = time + 60.0
         refreshBorders()
     }
@@ -1622,17 +1642,6 @@ class CivSim(
         return sb.toString() + "\n"
     }
 
-    private fun nextWorldAge() {
-        val n = WORLD_AGES.size
-        var pick = if (worldAge != 0 && rnd.nextInt(5) < 2) 0 else rnd.nextInt(n)
-        if (pick == worldAge) pick = (pick + 1) % n
-        worldAge = pick
-        worldAgeStart = time
-        val inf = ageInfo()
-        event("${inf.name} begins. ${inf.blurb}")
-        mark("${inf.name} begins.")
-    }
-
     private fun worldTick(dt: Float) {
         ownerClock += dt
         if (ownerClock > 1.5f) {
@@ -1640,133 +1649,39 @@ class CivSim(
             refreshBorders()
         }
         fx.removeAll { time - it.born > it.life }
-        if (time - worldAgeStart > DAY_LEN * 2.5) nextWorldAge()
-        worldClock += dt
-        if (worldClock < 12f) return
-        worldClock = 0f
-        val info = ageInfo()
-        for (v in villagers) v.happiness = (v.happiness + info.mood).coerceIn(0f, 100f)
-        if (worldAge == 3 && rnd.nextInt(8) == 0) {
-            food += 2
-            wood += 2
-            event("A shimmering gift from the sky lands in the village (+2 food, +2 wood).")
-        }
-        for (k in kingdoms) {
-            if (k.id == 0) continue
-            if (k.fallen) {
-                if (time - k.fallenAt > 260.0) reborn(k)
-                continue
-            }
-            if (k.pop < 30 && rnd.nextFloat() < (if (info.farm >= 1f) 0.4f else 0.2f)) k.pop++
-            k.might = min(40f, k.might + 0.15f)
-        }
-        for (r in rels.values.toList()) {
-            when (r.kind) {
-                "war" -> warRound(r)
-                else -> if (time > r.until) rels.remove(relKey(r.a, r.b))
-            }
-        }
-        if (time >= nextWorldEventAt) {
-            nextWorldEventAt = time + 70.0 + rnd.nextInt(90)
-            diplomacy()
-        }
+        dropsTick()
     }
 
-    private fun reborn(k: Kingdom) {
-        val names = RACE_NAMES[k.race] ?: return
-        k.fallen = false
-        k.pop = 4
-        k.might = 6f
-        k.name = "Free " + names[rnd.nextInt(names.size)]
-        event("Rebels rise from the ruins: the ${k.race.lowercase()}s raise a new banner as the ${k.name}.")
-        mark("${k.name} is founded by rebels.")
-    }
-
-    private fun warRound(r: Rel) {
-        val a = kingdoms.firstOrNull { it.id == r.a } ?: return
-        val b = kingdoms.firstOrNull { it.id == r.b } ?: return
-        if (a.fallen || b.fallen) {
-            rels.remove(relKey(r.a, r.b))
-            return
-        }
-        val pa = strength(a)
-        val pb = strength(b)
-        val aWins = rnd.nextFloat() * (pa + pb) < pa
-        val win = if (aWins) a else b
-        val lose = if (aWins) b else a
-        fx.add(Fx("clash", (kx(a) + kx(b)) / 2f, (ky(a) + ky(b)) / 2f, time, 13f))
-        if (lose.id == 0) {
-            food -= min(food, 1 + rnd.nextInt(2))
-            wood -= min(wood, rnd.nextInt(3))
-            for (v in villagers) v.happiness = max(0f, v.happiness - 3f)
-            if (rnd.nextInt(3) == 0) addLog("Raiders from ${win.name} plunder the village stores.")
-        } else {
-            lose.pop = max(0, lose.pop - 1)
-            if (win.id == 0) {
-                wood += 1 + rnd.nextInt(2)
-                stone += 1
-                for (v in villagers) v.happiness = min(100f, v.happiness + 2f)
-                if (rnd.nextInt(3) == 0) addLog("Hearthvale's defenders drive back ${lose.name}.")
-            } else {
-                win.might = min(40f, win.might + 0.6f)
-            }
-        }
-        if (lose.id != 0 && lose.pop <= 2) {
-            lose.fallen = true
-            lose.fallenAt = time
-            lose.pop = 0
-            rels.remove(relKey(r.a, r.b))
-            if (win.id != 0) win.pop += 2
-            event("${lose.name} has fallen to ${win.name}! Its banners come down.")
-            mark("${lose.name} fell to ${win.name}.")
-            return
-        }
-        if (time > r.until) {
-            rels.remove(relKey(r.a, r.b))
-            event("${a.name} and ${b.name} sign a truce. The war is over.")
-            mark("${a.name} and ${b.name} made peace.")
-        }
-    }
-
-    private fun diplomacy() {
-        val alive = kingdoms.filter { !it.fallen }
-        if (alive.size < 2) return
-        val a = alive[rnd.nextInt(alive.size)]
-        val rest = alive.filter { it !== a }
-        val b = rest[rnd.nextInt(rest.size)]
-        if (rels.containsKey(relKey(a.id, b.id))) return
-        val warFactor = ageInfo().war
-        val warsNow = rels.values.count { it.kind == "war" }
-        val roll = rnd.nextFloat()
-        val key = relKey(a.id, b.id)
-        val me = a.id == 0 || b.id == 0
-        when {
-            roll < 0.28f * warFactor && warsNow < 1 -> {
-                rels[key] = Rel(a.id, b.id, "war", time + 120.0 + rnd.nextInt(120))
-                if (me) {
-                    alertUntil = time + 60.0
-                    for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
-                    event("${a.name} declares war on ${b.name}! Warriors march on the border.")
-                } else {
-                    event("${a.name} declares war on ${b.name}!")
+    /** What the beasts leave behind lies on the ground until somebody hauls it home. */
+    private fun dropsTick() {
+        val iter = drops.iterator()
+        while (iter.hasNext()) {
+            val d = iter.next()
+            val workers = villagers.filter { !isChild(it) && it.phase != "sleeping" }
+            val taker = workers.minByOrNull { hypot(it.x - d.x, it.y - d.y) }
+            val near = taker != null && hypot(taker.x - d.x, taker.y - d.y) < 1.3f
+            if (!near && d.by < 0 && time - d.born > 1.5 && taker != null) {
+                val idle = workers.filter { (it.phase == "idle") && hypot(it.x - d.x, it.y - d.y) < 14f }
+                    .minByOrNull { hypot(it.x - d.x, it.y - d.y) }
+                if (idle != null) {
+                    val cell = d.y.toInt().coerceIn(0, GH - 1) * GW + d.x.toInt().coerceIn(0, GW - 1)
+                    if (go(idle, "wander", cell)) {
+                        d.by = idle.id
+                        idle.say = "I'll fetch it."
+                        idle.sayLeft = 2f
+                    }
                 }
-                mark("${a.name} went to war with ${b.name}.")
             }
-            roll < 0.28f * warFactor + 0.30f -> {
-                rels[key] = Rel(a.id, b.id, "alliance", time + 500.0)
-                if (me) for (v in villagers) v.happiness = min(100f, v.happiness + 8f)
-                event("${a.name} and ${b.name} swear an alliance.")
-                mark("${a.name} and ${b.name} allied.")
-            }
-            else -> {
-                rels[key] = Rel(a.id, b.id, "trade", time + 160.0)
-                if (me) {
-                    food += 3
-                    wood += 3
+            if (near || time - d.born > 30.0) {
+                food += d.food
+                hides += d.hides
+                taker?.let {
+                    it.gathered++
+                    it.happiness = min(100f, it.happiness + 5f)
+                    it.remember("hauled home a ${d.kind}'s meat and hides")
                 }
-                if (a.id != 0) a.pop++
-                if (b.id != 0) b.pop++
-                event("Trade caravans roll between ${a.name} and ${b.name}.")
+                addLog("The ${d.kind} leaves behind meat and hides (+${d.food} food, +${d.hides} hides).")
+                iter.remove()
             }
         }
     }
@@ -1806,7 +1721,7 @@ class CivSim(
     /** When danger looms, the villagers raise a watchtower on their own. Towers shoot at nearby predators. */
     private fun defenceTick() {
         if (age < 1 || time < nextTowerAt || villagers.size < 3) return
-        val danger = predators.isNotEmpty() || wars().any { it.first.id == 0 || it.second.id == 0 }
+        val danger = predators.isNotEmpty() || age >= 3
         if (!danger) return
         nextTowerAt = time + 90.0
         val have = count("tower")
@@ -1827,7 +1742,7 @@ class CivSim(
     /** Once a watchtower stands and danger lingers, villagers put up palisade walls around the village. */
     private fun wallTick() {
         if (time < nextWallAt || count("tower") < 1 || count("palisade") >= 8) return
-        if (predators.isEmpty() && wars().none { it.first.id == 0 || it.second.id == 0 }) return
+        if (predators.isEmpty() && age < 3) return
         nextWallAt = time + 45.0
         if (wood < 6) return
         val site = findSite()
@@ -1903,15 +1818,16 @@ class CivSim(
             if (p.hp <= 0f) {
                 predators.remove(p)
                 val meat = when (p.kind) { "bear" -> 8; "boar" -> 6; else -> 4 }
-                food += meat
+                val hide = when (p.kind) { "bear" -> 3; "boar" -> 2; else -> 1 }
+                drops.add(Drop(p.kind, p.x, p.y, time, meat, hide))
                 val hero = fighters.maxByOrNull { it.hp }
                 if (hero != null) {
                     hero.happiness = min(100f, hero.happiness + 15f)
                     hero.remember("helped kill a ${p.kind}")
-                    event("${hero.name} and the others bring down the ${p.kind}! (+$meat food)")
+                    event("${hero.name} and the others bring down the ${p.kind}! It leaves meat and hides.")
                     mark("${hero.name} helped slay a ${p.kind}.")
                 } else {
-                    event("The ${p.kind} falls (+$meat food).")
+                    event("The ${p.kind} falls and leaves meat and hides.")
                 }
             }
         }
@@ -1925,103 +1841,6 @@ class CivSim(
             if (startAction(v, "huddle", "")) {
                 v.say = "Run!"
                 v.sayLeft = 2f
-            }
-        }
-    }
-
-    private fun godAct(text: String) {
-        addLog(text)
-        lastNarrateAt = 0L
-        narrate(text)
-        for (v in villagers) v.remember(text.take(70))
-    }
-
-    private fun hitKingdom(ci: Int, loss: Int, text: String) {
-        val k = kingdoms.firstOrNull { it.id == owner[ci] } ?: return
-        if (k.id == 0 || k.fallen) return
-        k.pop = max(2, k.pop - loss)
-        event("$text ${k.name} suffers.")
-    }
-
-    private var nextDisasterAt = 0.0
-
-    /** The world's own moods sometimes lash out: bolts, quakes, meteors and plague. Never triggered by the player. */
-    private fun disasterTick() {
-        if (time < nextDisasterAt) return
-        val wild = worldAge == 6 || worldAge == 8 || worldAge == 9 || worldAge == 4
-        nextDisasterAt = time + (if (wild) 110.0 else 260.0) + rnd.nextInt(150)
-        if (time < DAY_LEN * 0.5 || villagers.size < 2) return
-        var ix = 0
-        var iy = 0
-        var found = false
-        for (attempt in 0 until 12) {
-            ix = 2 + rnd.nextInt(GW - 4)
-            iy = 2 + rnd.nextInt(GH - 4)
-            if (tiles[iy * GW + ix] != T.WATER) { found = true; break }
-        }
-        if (!found) return
-        val ci = iy * GW + ix
-        val tx = ix + 0.5f
-        val ty = iy + 0.5f
-        fun near(r: Float) = villagers.filter { hypot(it.x - tx, it.y - ty) <= r }
-        val kind = when (worldAge) {
-            6 -> rnd.nextInt(3)
-            8 -> if (rnd.nextBoolean()) 2 else 0
-            4, 9 -> if (rnd.nextBoolean()) 3 else 0
-            else -> if (rnd.nextInt(3) == 0) 1 else 0
-        }
-        when (kind) {
-            0 -> {
-                fx.add(Fx("bolt", tx, ty, time, 0.9f))
-                if (tiles[ci] == T.FOREST) {
-                    amt[ci] = 2
-                    fx.add(Fx("fire", tx, ty, time, 7f))
-                }
-                for (v in near(1.8f)) {
-                    v.hp = max(5f, v.hp - 35f)
-                    v.happiness = max(0f, v.happiness - 10f)
-                }
-                godAct("Lightning strikes the land.")
-            }
-            1 -> {
-                shakeUntil = time + 1.5
-                fx.add(Fx("quake", tx, ty, time, 1.8f))
-                repeat(6) {
-                    val ex = ix + rnd.nextInt(7) - 3
-                    val ey = iy + rnd.nextInt(7) - 3
-                    if (ex in 1 until GW - 1 && ey in 1 until GH - 1) {
-                        val i = ey * GW + ex
-                        if (tiles[i] == T.GRASS && !occupied[i]) {
-                            tiles[i] = T.ROCK
-                            amt[i] = 4
-                        }
-                    }
-                }
-                for (v in near(7f)) v.happiness = max(0f, v.happiness - 6f)
-                godAct("The ground shakes and splits.")
-                hitKingdom(ci, 2, "An earthquake rattles the land.")
-            }
-            2 -> {
-                shakeUntil = time + 1.8
-                fx.add(Fx("meteor", tx, ty, time, 2.4f))
-                for (v in near(2.5f)) v.hp = max(5f, v.hp - 50f)
-                if (!occupied[ci] && tiles[ci] != T.WATER) {
-                    tiles[ci] = if (age >= 2) T.ORE else T.ROCK
-                    amt[ci] = 5
-                }
-                godAct("A meteor crashes down!")
-                mark("A meteor fell from the sky.")
-                hitKingdom(ci, 3, "A meteor strikes.")
-            }
-            else -> {
-                plagueUntil = time + 150.0
-                fx.add(Fx("plague", tx, ty, time, 5f))
-                for (v in near(5.5f)) {
-                    v.hp = max(5f, v.hp - 25f)
-                    v.happiness = max(0f, v.happiness - 12f)
-                }
-                godAct("A sickly green cloud drifts over the land.")
-                hitKingdom(ci, 3, "A plague spreads.")
             }
         }
     }
@@ -2042,8 +1861,8 @@ class CivSim(
 
     private fun eventTick() {
         if (time < nextEventAt || villagers.size < 2) return
-        nextEventAt = time + 150.0 + rnd.nextInt(150) - (if (worldAge == 6) 75.0 else 0.0)
-        when (rnd.nextInt(6)) {
+        nextEventAt = time + 110.0 + rnd.nextInt(120)
+        when (rnd.nextInt(7)) {
             0 -> {
                 for (i in tiles.indices) if (tiles[i] == T.BUSH) amt[i] = 3
                 event("The bushes burst with ripe berries.")
@@ -2058,10 +1877,10 @@ class CivSim(
                     event("A friendly traveler shares supplies and stories.")
                 }
             }
-            2 -> {
+            2, 6 -> {
                 alertUntil = time + 80.0
                 for (v in villagers) v.happiness = max(0f, v.happiness - 6f)
-                val bearLoose = (worldAge == 4 || worldAge == 6 || worldAge == 9) && rnd.nextInt(3) == 0
+                val bearLoose = age >= 2 && rnd.nextInt(4) == 0
                 if (!bearLoose && rnd.nextInt(3) == 0) {
                     val n = 1 + rnd.nextInt(2)
                     spawnPredators("boar", n)
@@ -2070,7 +1889,7 @@ class CivSim(
                     spawnPredators("bear", 1)
                     event("A huge bear crashes out of the forest and heads for the village!")
                 } else {
-                    val n = 2 + rnd.nextInt(2)
+                    val n = 2 + rnd.nextInt(2) + age / 2
                     spawnPredators("wolf", n)
                     event("A pack of $n wolves prowls out of the trees! Stay near the fire, fighters to the edge.")
                 }
@@ -2166,8 +1985,9 @@ class CivSim(
         }
 
         ageTick(dt)
+        planTick()
+        capStores()
         eventTick()
-        disasterTick()
         worldTick(dt)
         schedule()
     }
@@ -2279,7 +2099,7 @@ class CivSim(
             o.put("chron", JSONArray(chronicle.takeLast(40)))
             o.put("ore", ore).put("metal", metal).put("smelted", totalSmelted).put("explored", explored).put("age", age)
             o.put("nextId", nextId)
-            o.put("wage", worldAge).put("wstart", worldAgeStart)
+            o.put("hides", hides)
             val ks = JSONArray()
             kingdoms.forEach {
                 ks.put(
@@ -2368,10 +2188,9 @@ class CivSim(
             }
             val lg = o.optJSONArray("log")
             if (lg != null) for (i in 0 until lg.length()) log.add(lg.getString(i))
-            worldAge = o.optInt("wage", 0).coerceIn(0, WORLD_AGES.size - 1)
-            worldAgeStart = o.optDouble("wstart", time)
-            pendingKings = o.optJSONArray("kings")
-            pendingRels = o.optJSONArray("rels")
+            hides = o.optInt("hides", 0)
+            drops.clear()
+            rels.clear()
             rnd = Random(seed xor time.toLong())
             villagers.isNotEmpty()
         } catch (e: Exception) {

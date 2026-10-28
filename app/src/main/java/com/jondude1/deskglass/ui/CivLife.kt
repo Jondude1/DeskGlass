@@ -492,3 +492,76 @@ fun DrawScope.lifeCritters(sim: CivSim, art: CivArt, g: Geo) {
     }
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// What the beasts leave behind: a haunch of meat and a rolled-up hide, until somebody hauls it home.
+// ---------------------------------------------------------------------------------------------
+fun DrawScope.drawDrops(sim: CivSim, g: Geo) {
+    val ps = g.ps
+    for (d in sim.drops) {
+        val age = (sim.time - d.born).toFloat()
+        val pop = if (age < 0.5f) sin(age / 0.5f * PI.toFloat()) * g.ts * 0.7f else 0f
+        val x = g.ox + d.x * g.ts
+        val y = g.oy + d.y * g.ts
+        val bob = sin(g.t * 3f + d.x) * ps * 0.5f
+        val fade = if (age > 24f) ((30f - age) / 6f).coerceIn(0.3f, 1f) else 1f
+        drawOval(Color.Black.copy(alpha = 0.25f), Offset(x - ps * 4f, y - ps * 0.8f), Size(ps * 8f, ps * 2.2f))
+        val top = y - ps * 4f - pop + bob
+        // the hide, rolled up
+        drawRect(Color(0xFF7A5A3A).copy(alpha = fade), Offset(x - ps * 4.2f, top + ps * 1.4f), Size(ps * 4f, ps * 2.6f))
+        drawRect(Color(0xFF9A7650).copy(alpha = fade), Offset(x - ps * 4.2f, top + ps * 1.4f), Size(ps * 4f, ps * 0.9f))
+        // the meat on the bone
+        drawRect(Color(0xFFEFE6D0).copy(alpha = fade), Offset(x + ps * 0.4f, top + ps * 0.4f), Size(ps * 3.6f, ps * 0.9f))
+        drawRect(Color(0xFFC93C4A).copy(alpha = fade), Offset(x - ps * 0.2f, top + ps * 1.0f), Size(ps * 3.8f, ps * 2.8f))
+        drawRect(Color(0xFFE5707A).copy(alpha = fade), Offset(x - ps * 0.2f, top + ps * 1.0f), Size(ps * 3.8f, ps * 0.9f))
+        // a little glint so the eye finds it
+        val tw = (0.5f + 0.5f * sin(g.t * 5f + d.y * 3f)).coerceIn(0f, 1f)
+        drawRect(Color.White.copy(alpha = 0.8f * tw), Offset(x + ps * 3f, top - ps * 0.6f), Size(ps * 1.1f, ps * 1.1f))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// A new age: a gold ring spreads from the village and a banner names the age.
+// ---------------------------------------------------------------------------------------------
+fun DrawScope.ageBanner(sim: CivSim, g: Geo, namePaint: android.graphics.Paint, bubblePaint: android.graphics.Paint) {
+    val age = (sim.time - sim.ageBannerAt).toFloat()
+    if (age < 0f || age > 9f || sim.ageBannerName.isEmpty()) return
+    val a = when {
+        age < 0.8f -> age / 0.8f
+        age > 7f -> ((9f - age) / 2f).coerceIn(0f, 1f)
+        else -> 1f
+    }
+    val cx = g.ox + com.jondude1.deskglass.sim.GW * g.ts / 2f
+    val cy = g.oy + com.jondude1.deskglass.sim.GH * g.ts / 2f
+    val p = (age / 3f).coerceIn(0f, 1f)
+    if (p < 1f) {
+        drawCircle(
+            Color(0xFFFFE08A).copy(alpha = 0.55f * (1f - p)),
+            radius = g.ts * (2f + p * 26f), center = Offset(cx, cy),
+            style = Stroke(width = g.ps * (3f + 5f * (1f - p))),
+        )
+        drawCircle(
+            Color(0xFFFFF3C8).copy(alpha = 0.25f * (1f - p)),
+            radius = g.ts * (1f + p * 18f), center = Offset(cx, cy),
+            style = Stroke(width = g.ps * 2f),
+        )
+    }
+    val w = min(size.width * 0.8f, g.ts * 20f)
+    val h = g.ts * 2.6f
+    val left = (size.width - w) / 2f
+    val top = size.height * 0.16f - (1f - a) * g.ts
+    drawRect(Color(0xFF1A1424).copy(alpha = 0.72f * a), Offset(left, top), Size(w, h))
+    drawRect(Color(0xFFE8C45A).copy(alpha = a), Offset(left, top), Size(w, g.ps * 1.4f))
+    drawRect(Color(0xFFE8C45A).copy(alpha = a), Offset(left, top + h - g.ps * 1.4f), Size(w, g.ps * 1.4f))
+    drawIntoCanvas { c ->
+        val nc = c.nativeCanvas
+        namePaint.textAlign = android.graphics.Paint.Align.CENTER
+        namePaint.color = android.graphics.Color.argb((a * 255).toInt(), 255, 226, 140)
+        namePaint.textSize = g.ts * 1.15f
+        nc.drawText(sim.ageBannerName.uppercase(), size.width / 2f, top + h * 0.56f, namePaint)
+        namePaint.color = android.graphics.Color.argb((a * 220).toInt(), 255, 255, 255)
+        namePaint.textSize = g.ts * 0.5f
+        nc.drawText("A new age begins", size.width / 2f, top + h * 0.86f, namePaint)
+        namePaint.color = android.graphics.Color.argb(230, 255, 255, 255)
+    }
+}

@@ -29,18 +29,19 @@ class WorldAgeInfo(
     val darkFloor: Float,
 )
 
+/** The settlement's ages, one per stage of growth. index = Civ.age. */
 val WORLD_AGES = listOf(
-    WorldAgeInfo("Age of Hope", "Calm skies. Crops and spirits thrive.", 0xFFFFF0B0, 0.05f, "motes", 0.6f, 1.15f, 0.6f, 0f),
-    WorldAgeInfo("Age of Sun", "Blazing days. Fields ripen fast.", 0xFFFFD25A, 0.10f, "rays", 0.4f, 1.4f, 0.9f, 0f),
-    WorldAgeInfo("Age of Moon", "Silver nights and quiet magic.", 0xFF8FA8FF, 0.10f, "silver", 0.1f, 1.0f, 0.8f, 0.2f),
-    WorldAgeInfo("Age of Wonders", "Strange gifts fall from the sky.", 0xFFFF9AF0, 0.06f, "sparkle", 0.8f, 1.1f, 0.7f, 0f),
-    WorldAgeInfo("Age of Dark", "Long shadows. Fear spreads.", 0xFF1A1030, 0.18f, "wisps", -0.9f, 0.85f, 1.4f, 0.3f),
-    WorldAgeInfo("Age of Tears", "Endless rain. Hearts grow heavy.", 0xFF4A6A9A, 0.12f, "none", -0.6f, 1.0f, 0.9f, 0.08f),
-    WorldAgeInfo("Age of Chaos", "Omens, quarrels and wild events.", 0xFFFF4A3A, 0.07f, "embers", -0.3f, 0.9f, 1.8f, 0.05f),
-    WorldAgeInfo("Age of Ice", "Snow and frost. Crops crawl.", 0xFFBFE6FF, 0.14f, "none", -0.4f, 0.6f, 0.8f, 0.05f),
-    WorldAgeInfo("Age of Ash", "Grey skies and falling cinders.", 0xFF6A6A70, 0.16f, "ash", -0.6f, 0.75f, 1.3f, 0.12f),
-    WorldAgeInfo("Age of Despair", "Hunger, doubt and endless war.", 0xFF30303A, 0.20f, "fog", -1.4f, 0.7f, 1.7f, 0.18f),
+    WorldAgeInfo("Camp Age", "Tents by the fire. Hunt, forage, survive.", 0xFFFFE9B0, 0.04f, "motes", 0f, 1.0f, 1f, 0f),
+    WorldAgeInfo("Hut Age", "Timber huts and the first farms.", 0xFFFFF0B0, 0.03f, "motes", 0f, 1.0f, 1f, 0f),
+    WorldAgeInfo("Village Age", "Stone houses, a village hall and forges.", 0xFFFFE0A0, 0.02f, "none", 0f, 1.1f, 1f, 0f),
+    WorldAgeInfo("Town Age", "Streets, towers and iron tools.", 0xFFFFD8A0, 0.02f, "none", 0f, 1.2f, 1f, 0f),
+    WorldAgeInfo("City Age", "A walled city with a grand keep.", 0xFFFFD0A0, 0.03f, "none", 0f, 1.3f, 1f, 0f),
 )
+
+/** Meat and hides a beast left where it fell, waiting to be hauled home. */
+class Drop(val kind: String, val x: Float, val y: Float, val born: Double, val food: Int, val hides: Int) {
+    var by = -1
+}
 
 fun predatorMaxHp(kind: String): Float = when (kind) { "bear" -> 90f; "boar" -> 60f; else -> 40f }
 

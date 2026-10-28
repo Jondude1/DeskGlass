@@ -467,7 +467,14 @@ private fun DrawScope.drawWorld(
         for (b in sim.buildings) {
             if (b.y != y) continue
             val sp = when (b.type) {
-                "hut" -> if (b.era <= 0) art.tent else if (b.era == 1) art.hut else art.hutStone
+                "hut" -> when {
+                    b.era <= 0 -> art.tent
+                    b.era == 1 -> art.hut
+                    b.era == 2 -> art.hutStone
+                    b.era == 3 -> art.townHouse
+                    else -> art.cityHouse
+                }
+                "hall" -> if (b.era <= 2) art.hall else art.keep
                 "farm" -> art.farm
                 "smelter" -> art.forge
                 "tower" -> art.tower
@@ -484,6 +491,9 @@ private fun DrawScope.drawWorld(
             }
             img(sp, cx - w / 2f, baseY - hh, w, hh)
             if (b.type == "farm") crops(b, geo, cx - w / 2f, baseY - hh)
+            if (b.type == "hall" && b.era >= 3) {
+                banner(cx - ps * 0.4f, baseY - hh + ps * 0.5f, ps * 9f, Color(sim.kingdoms[0].color), ps, t, 7f)
+            }
             if (b.type == "tower") {
                 // a flag on top and a torch that glows at night
                 banner(cx + ps * 0.5f, baseY - hh + ps * 0.5f, ps * 8f, Color(sim.kingdoms[0].color), ps, t, 3f)
@@ -497,7 +507,7 @@ private fun DrawScope.drawWorld(
                 }
             }
             // lit windows at night
-            if (b.type == "hut" && b.era >= 1 && dark > 0.1f) {
+            if ((b.type == "hut" || b.type == "hall") && b.era >= 1 && dark > 0.1f) {
                 val glow = Color(0xFFFFD27A).copy(alpha = min(1f, dark * 1.6f))
                 drawRect(glow, Offset(cx - w * 0.36f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
                 drawRect(glow, Offset(cx + w * 0.18f, baseY - hh * 0.5f), Size(ps * 2f, ps * 2.4f))
@@ -522,67 +532,9 @@ private fun DrawScope.drawWorld(
 
     // wildlife, then villagers
     lifeCritters(sim, art, geo)
+    drawDrops(sim, geo)
     val sorted = sim.villagers.sortedBy { it.y }
     drawVillagers(sim, art, geo, sun)
-
-    // rival kingdoms' folk go about their day
-    for (k in sim.kingdoms) {
-        if (k.id == 0 || k.fallen) continue
-        val crowd = min(6, k.pop / 2 + 1)
-        for (m in 0 until crowd) {
-            val wx = k.cx + 0.5f + kotlin.math.sin(t * 0.35f + m * 2.1f + k.id) * (1.6f + (m % 3) * 0.5f)
-            val wy = k.cy + 1.4f + kotlin.math.cos(t * 0.28f + m * 1.7f) * (1.2f + (m % 2) * 0.6f)
-            val spr = art.folk(k.race, ((t * 3f + m).toInt()) and 1)
-            val sc = if (k.race == "Dwarf") 0.85f else 1f
-            val w = spr.lw * ps * sc
-            val h = spr.lh * ps * sc
-            shadow(ox + wx * ts, oy + wy * ts, w * 0.9f, 2.4f * ps)
-            img(spr, ox + wx * ts - w / 2f, oy + wy * ts - h, w, h)
-        }
-    }
-
-    // armies march and clash while kingdoms are at war
-    for ((a, b) in sim.wars()) {
-        val ax = sim.kx(a)
-        val ay = sim.ky(a)
-        val bx = sim.kx(b)
-        val byy = sim.ky(b)
-        for (m in 0 until 4) {
-            val p = 0.12f + ((t * 0.05f + m * 0.07f) % 1f) * 0.38f
-            val mx = ax + (bx - ax) * p
-            val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
-            val soldier = art.folk(if (a.race == "Human") "Elf" else a.race, ((t * 4f + m).toInt()) and 1)
-            val w = soldier.lw * ps
-            val h = soldier.lh * ps
-            shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
-            img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
-        }
-        for (m in 0 until 4) {
-            val p = 0.62f + ((t * 0.05f + m * 0.07f) % 1f) * 0.26f
-            val mx = ax + (bx - ax) * p
-            val my = ay + (byy - ay) * p + (m - 1.5f) * 0.35f
-            val soldier = art.folk(if (b.race == "Human") "Elf" else b.race, ((t * 4f + m).toInt()) and 1)
-            val w = soldier.lw * ps
-            val h = soldier.lh * ps
-            shadow(ox + mx * ts, oy + my * ts, w * 0.9f, 2.4f * ps)
-            img(soldier, ox + mx * ts - w / 2f, oy + my * ts - h, w, h)
-        }
-        val cx = ox + (ax + (bx - ax) * 0.5f) * ts
-        val cy = oy + (ay + (byy - ay) * 0.5f) * ts
-        for (sp in 0 until 7) {
-            val ang = t * 5f + sp * 0.9f
-            val r = ts * (0.25f + 0.35f * ((t * 3f + sp * 0.37f) % 1f))
-            val flick = (0.5f + 0.5f * kotlin.math.sin(t * 17f + sp * 2.1f)).coerceIn(0f, 1f)
-            drawRect(
-                (if (sp % 2 == 0) Color(0xFFFFC94A) else Color(0xFFFF6A2B)).copy(alpha = 0.4f + 0.6f * flick),
-                Offset(cx + kotlin.math.cos(ang) * r, cy - ts * 0.3f + kotlin.math.sin(ang) * r * 0.7f),
-                Size(ps * 1.6f, ps * 1.6f),
-            )
-        }
-        val sw = Color(0xFFE6E9F0)
-        drawLine(sw, Offset(cx - ts * 0.35f, cy - ts * 0.7f), Offset(cx + ts * 0.35f, cy - ts * 0.1f), strokeWidth = ps * 1.3f)
-        drawLine(sw, Offset(cx + ts * 0.35f, cy - ts * 0.7f), Offset(cx - ts * 0.35f, cy - ts * 0.1f), strokeWidth = ps * 1.3f)
-    }
 
     // effects (bolts, meteors, fires, clashes, arrows)
     for (f in sim.fx.toList()) {
@@ -815,6 +767,7 @@ private fun DrawScope.drawWorld(
                     b.type == "smelter" -> light(bx, by, ts * 3.4f * flick, 0.75f)
                     b.type == "tower" -> light(bx, by - ts * 0.8f, ts * 4f * flick, 0.8f)
                     b.type == "hut" && b.era >= 1 -> light(bx, by + ts * 0.1f, ts * 2.2f, 0.6f)
+                    b.type == "hall" -> light(bx, by, ts * 3.4f, 0.75f)
                 }
             }
             for (k in sim.kingdoms) {
@@ -871,7 +824,7 @@ private fun DrawScope.drawWorld(
 
     // seasons follow the real calendar: blossoms, warm light, falling leaves, snow
     val season = when (java.time.LocalDate.now().monthValue) { 12, 1, 2 -> 3; 3, 4, 5 -> 0; 6, 7, 8 -> 1; else -> 2 }
-    val snowing = sim.outsideSnow || season == 3 || sim.worldAge == 7
+    val snowing = sim.outsideSnow || season == 3
     drawRect(
         when (season) {
             0 -> Color(0xFFFFB6D5)
@@ -973,6 +926,8 @@ private fun DrawScope.drawWorld(
         )
     )
 
+    ageBanner(sim, geo, namePaint, bubblePaint)
+
     // speech bubbles and names
     drawIntoCanvas { c ->
         val nc = c.nativeCanvas
@@ -1022,8 +977,6 @@ private fun threatText(sim: CivSim): String? {
     val parts = ArrayList<String>()
     val groups = sim.predators.groupBy { it.kind }
     for ((k, v) in groups) parts.add("${v.size} ${k}${if (v.size == 1) "" else "s"} prowling")
-    val war = sim.wars().firstOrNull { it.first.id == 0 || it.second.id == 0 }
-    if (war != null) parts.add("war: ${war.first.name} vs ${war.second.name}")
     if (parts.isEmpty()) return null
     val towers = sim.buildings.count { it.type == "tower" }
     if (towers > 0) parts.add("$towers watchtower${if (towers == 1) "" else "s"} manned")
@@ -1038,7 +991,7 @@ private fun StatsChip(sim: CivSim, modifier: Modifier = Modifier) {
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
         Text(
-            "Folk ${sim.villagers.size}  ·  Food ${sim.food}  ·  Wood ${sim.wood}  ·  Stone ${sim.stone}",
+            "Folk ${sim.villagers.size}  ·  Food ${sim.food}  ·  Wood ${sim.wood}  ·  Stone ${sim.stone}  ·  Hides ${sim.hides}",
             color = Glass.Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium,
         )
     }
@@ -1086,7 +1039,7 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
             CivCanvas(sim, Modifier.fillMaxSize(), cover = true, labels = true)
             GlassButton("Exit fullscreen", { onFullscreen(false) }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
             Text(
-                "${sim.ageInfo().name} · ${sim.ageName()} · day ${sim.day()}",
+                "${sim.ageName()} · day ${sim.day()}",
                 color = Glass.InkDim,
                 fontSize = 15.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
@@ -1137,7 +1090,6 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
             Column(mod, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(sim.ageName(), color = Glass.Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 val wa = sim.ageInfo()
-                Text(wa.name, color = Color(wa.tint), fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Text(wa.blurb, color = Glass.InkFaint, fontSize = 12.sp)
                 Text(
                     "Day ${sim.day()} · ${sim.partOfDay()} · ${sim.villagers.size}/${sim.popCap()} villagers",
@@ -1146,9 +1098,10 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 val next = sim.nextAgeName()
                 if (next != null) {
                     Text("Next: $next — ${sim.progress()}%", color = Glass.InkDim, fontSize = 14.sp)
+                    Text("Needs: ${sim.ageNeedText()}", color = Glass.InkFaint, fontSize = 12.sp)
                 }
                 Text(
-                    "Wood ${sim.wood}   Stone ${sim.stone}   Food ${sim.food}" +
+                    "Wood ${sim.wood}   Stone ${sim.stone}   Food ${sim.food}   Hides ${sim.hides}" +
                         (if (sim.age >= 2) "   Ore ${sim.ore}   Metal ${sim.metal}" else ""),
                     color = Glass.InkDim, fontSize = 16.sp,
                 )
@@ -1175,23 +1128,6 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                                 color = Glass.InkFaint, fontSize = 12.sp,
                             )
                         }
-                    }
-                    Text("KINGDOMS", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 4.dp))
-                    for (k in sim.kingdoms) {
-                        val rel = if (k.id == 0) "your village" else sim.relOf(0, k.id)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("●", color = Color(k.color), fontSize = 14.sp)
-                            Text(
-                                if (k.fallen) "${k.name} (fallen)" else "${k.name} · ${k.race}s · ${k.pop} · $rel",
-                                color = Glass.InkDim, fontSize = 13.sp,
-                            )
-                        }
-                    }
-                    for (r in sim.rels.values) {
-                        if (r.a == 0 || r.b == 0) continue
-                        val an = sim.kingdoms.getOrNull(r.a)?.name ?: continue
-                        val bn = sim.kingdoms.getOrNull(r.b)?.name ?: continue
-                        Text("$an and $bn: ${r.kind}", color = Glass.InkFaint, fontSize = 12.sp)
                     }
                     if (sim.chronicle.isNotEmpty()) {
                         Text("CHRONICLE", color = Glass.InkFaint, fontSize = 13.sp, letterSpacing = 3.sp, modifier = Modifier.padding(top = 8.dp))
