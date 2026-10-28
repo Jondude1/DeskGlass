@@ -984,7 +984,8 @@ private fun threatText(sim: CivSim): String? {
 }
 
 @Composable
-private fun StatsChip(sim: CivSim, modifier: Modifier = Modifier) {
+private fun StatsChip(sim: CivSim, tick: Long, modifier: Modifier = Modifier) {
+    @Suppress("UNUSED_VARIABLE") val t = tick // changing param forces a refresh; the sim fields are not Compose state
     Box(
         modifier
             .background(Color(0x99101828), RoundedCornerShape(14.dp))
@@ -998,7 +999,8 @@ private fun StatsChip(sim: CivSim, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ThreatChip(sim: CivSim, modifier: Modifier = Modifier) {
+private fun ThreatChip(sim: CivSim, tick: Long, modifier: Modifier = Modifier) {
+    @Suppress("UNUSED_VARIABLE") val t = tick
     val text = threatText(sim) ?: return
     Box(
         modifier
@@ -1044,8 +1046,8 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 fontSize = 15.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             )
-            ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
-            StatsChip(sim, Modifier.align(Alignment.BottomStart).padding(16.dp))
+            ThreatChip(sim, tick, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
+            StatsChip(sim, tick, Modifier.align(Alignment.BottomStart).padding(16.dp))
             if (narration != null) {
                 Text(
                     narration!!,
@@ -1080,8 +1082,8 @@ fun VillageScreen(vm: MainViewModel, fullscreen: Boolean, onFullscreen: (Boolean
                 GlassCard(Modifier.weight(1f).fillMaxWidth(), corner = 24.dp) {
                     Box(Modifier.fillMaxSize()) {
                         CivCanvas(sim, Modifier.fillMaxSize(), cover = false, labels = true)
-                        ThreatChip(sim, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
-                        StatsChip(sim, Modifier.align(Alignment.BottomStart).padding(12.dp))
+                        ThreatChip(sim, tick, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+                        StatsChip(sim, tick, Modifier.align(Alignment.BottomStart).padding(12.dp))
                     }
                 }
             }
